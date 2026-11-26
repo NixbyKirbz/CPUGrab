@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       );
     const url = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
     const db = await serverSupabase();
-    const { error } = await db.auth.signUp({
+    const { data, error } = await db.auth.signUp({
       email: value.email,
       password: value.password,
       options: {
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       },
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, signedIn: Boolean(data.session) });
   } catch (e) {
     return NextResponse.json(
       {

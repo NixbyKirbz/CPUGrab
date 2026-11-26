@@ -19,10 +19,10 @@ async function as(id: string) {
 async function owner() {
   await db.exec('reset role');
 }
-async function create(key = crypto.randomUUID(), qty = 1) {
+async function create(key = crypto.randomUUID(), qty = 1, pickupSlot = slot) {
   const r = await db.query<{ id: string }>(
     "select public.create_reservation($1,$2,$3::jsonb,$4,'test') as id",
-    [stall, slot, JSON.stringify([{ id: item, quantity: qty }]), key],
+    [stall, pickupSlot, JSON.stringify([{ id: item, quantity: qty }]), key],
   );
   return r.rows[0].id;
 }
@@ -58,13 +58,46 @@ afterAll(async () => {
   await db?.close();
 });
 describe('Database authorization and atomic lifecycle', () => {
-  it('only bootstraps an invited administrator after verified email ownership', async () => {
+  it('lists and accepts only pickup times that fit within today in Manila', async () => {
+    await owner();
+    await db.exec("set time zone 'America/Los_Angeles'");
+    const { rows: laterSlots } = await db.query<{ id: string }>(
+      `with boundary as (
+        select ((timezone('Asia/Manila', now())::date + 1)::timestamp at time zone 'Asia/Manila') as midnight
+      )
+      insert into public.pickup_slots(stall_id,start_time,end_time,max_reservations)
+      select $1, midnight + offset_time, midnight + offset_time + interval '30 minutes', 2
+      from boundary cross join (values (interval '10 minutes'), (interval '2 days')) offsets(offset_time)
+      returning id`,
+      [stall],
+    );
+    try {
+      await as(student);
+      const { rows: available } = await db.query<{ id: string }>(
+        'select id from public.available_pickup_slots($1)',
+        [stall],
+      );
+      const ids = available.map(({ id }) => id);
+      expect(ids).toContain(slot);
+      for (const { id } of laterSlots) {
+        expect(ids).not.toContain(id);
+        await expect(create(crypto.randomUUID(), 1, id)).rejects.toThrow('pickup time for today');
+      }
+    } finally {
+      await owner();
+      await db.exec('reset time zone');
+    }
+  });
+  it('keeps account confirmation from granting administrator access during the pause', async () => {
     await owner();
     const invited = '55555555-5555-4555-8555-555555555555';
     await db.query(
       "insert into cpugrab_private.admin_bootstrap(email) values('invited@example.com')",
     );
-    await db.query("insert into auth.users(id,email) values($1,'invited@example.com')", [invited]);
+    await db.query(
+      "insert into auth.users(id,email,email_confirmed_at) values($1,'invited@example.com',now())",
+      [invited],
+    );
     expect(
       (
         await db.query<{ role: string }>('select role from public.user_roles where user_id=$1', [
@@ -79,8 +112,8 @@ describe('Database authorization and atomic lifecycle', () => {
           invited,
         ])
       ).rows[0].role,
-    ).toBe('admin');
-    expect((await db.query('select * from cpugrab_private.admin_bootstrap')).rows).toHaveLength(0);
+    ).toBe('student');
+    expect((await db.query('select * from cpugrab_private.admin_bootstrap')).rows).toHaveLength(1);
     await as(other);
     await expect(db.query('select * from cpugrab_private.admin_bootstrap')).rejects.toThrow();
   });

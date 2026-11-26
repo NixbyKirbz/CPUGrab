@@ -92,7 +92,7 @@ Open [http://localhost:3000](http://localhost:3000). Without Supabase configurat
 
 The current deployment is [cpugrab.vercel.app](https://cpugrab.vercel.app), connected to Supabase project `elyhudnmywupetxethay` and [NixbyKirbz/CPUGrab](https://github.com/NixbyKirbz/CPUGrab). Migration filenames match the recorded remote migration versions. Only public API configuration is used by the app; the database password is never committed or passed to Vercel.
 
-The project owner can configure a one-time administrator invitation in the unexposed `cpugrab_private.admin_bootstrap` table. Its trigger grants administrator access only after the invited email is verified, then consumes the invitation. No administrator email is embedded in source.
+Automatic administrator invitations are paused while the project supports testing with Confirm email off. Use the SQL Editor workflow above to assign administrator access after independently verifying the account. Before restoring the original `cpugrab_private.bootstrap_verified_admin()` function, turn Confirm email back on and review pending invitations and accounts created during the pause.
 
 ## Install on a phone
 

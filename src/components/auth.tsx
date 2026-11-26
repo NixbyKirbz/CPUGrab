@@ -53,6 +53,11 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error);
+        if (body.signedIn) {
+          router.replace(seller ? '/register/stall' : '/student/home');
+          router.refresh();
+          return;
+        }
         setNotice(
           'Check your email to verify your account. Then sign in' +
             (seller ? ' and complete your stall application.' : '.'),
@@ -246,8 +251,8 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
               </button>
               {seller && mode === 'register' && (
                 <p className="help-text">
-                  After email verification, you’ll add your stall name, location, contact number,
-                  and photo. An administrator reviews every application.
+                  Next, add your stall name, location, contact number, and photo. An administrator
+                  reviews every application.
                 </p>
               )}
             </form>

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { ShoppingBag, Banknote, Trash2, CalendarDays, CalendarCheck } from 'lucide-react';
 import { useCart } from '@/stores/cart';
 import { fetchCatalog, rpc } from '@/services/catalog';
-import { money, time, day, cartTotals } from '@/lib/format';
+import { money, time, cartTotals } from '@/lib/format';
 import { useSession } from '@/components/providers';
 import { PageTitle, Empty, Quantity, Loading, ErrorBox, Modal, Busy } from '@/components/ui';
 import type { Slot } from '@/types';
@@ -33,11 +33,13 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
   const stallId = lines[0]?.stall_id;
   const {
     data: slots = [],
+    isPending: slotsPending,
     error: slotError,
     refetch: refreshSlots,
   } = useQuery({
-    queryKey: ['slots', stallId],
+    queryKey: ['slots', stallId, user?.id],
     enabled: Boolean(user && checkout && stallId),
+    refetchInterval: 30_000,
     queryFn: () => rpc<Slot[]>('available_pickup_slots', { p_stall: stallId }),
   });
   if (!hydrated || isPending) return <Loading />;
@@ -174,7 +176,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
           </div>
           {checkout && (
             <section className="pickup-options">
-              <h2>Pickup Time</h2>
+              <h2>Today’s Pickup Times</h2>
               {!user ? (
                 <div className="notice">Sign in to see available pickup times.</div>
               ) : (
@@ -185,7 +187,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
                   <label>
                     <span style={{ display: 'flex', gap: 7 }}>
                       <CalendarDays size={16} />
-                      Available pickup times · Asia/Manila
+                      Pickup time · Asia/Manila
                     </span>
                     <select
                       value={slot}
@@ -194,19 +196,21 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
                         key.current = null;
                       }}
                       required
+                      disabled={slotsPending || !slots.length}
                     >
-                      <option value="">Choose an available pickup time</option>
+                      <option value="">
+                        {slotsPending ? 'Loading pickup times…' : 'Choose a pickup time'}
+                      </option>
                       {slots.map((s) => (
                         <option value={s.id} key={s.id}>
-                          {day(s.start_time)} · {time(s.start_time)} – {time(s.end_time)} ·{' '}
-                          {s.remaining} left
+                          {time(s.start_time)} – {time(s.end_time)} · {s.remaining} left
                         </option>
                       ))}
                     </select>
                   </label>
-                  {!slots.length && !slotError && (
+                  {!slots.length && !slotsPending && !slotError && (
                     <p className="help-text" style={{ marginTop: 10 }}>
-                      No future pickup slots are open. Please check back or contact the stall.
+                      No pickup times are available for today.
                     </p>
                   )}
                 </>
@@ -274,7 +278,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
             <span>Pickup Time</span>
             <strong>
               {selected &&
-                `${day(selected.start_time)} · ${time(selected.start_time)} – ${time(selected.end_time)}`}
+                `Today · ${time(selected.start_time)} – ${time(selected.end_time)}`}
             </strong>
           </div>
           <div className="detail-row total-row">
