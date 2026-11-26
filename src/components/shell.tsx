@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   ArrowUpRight,
   Search,
+  X,
 } from 'lucide-react';
 import { useCart } from '@/stores/cart';
 import { configured, getSupabase } from '@/lib/supabase/client';
@@ -29,6 +30,7 @@ import type { Role } from '@/types';
 import { fetchCatalog } from '@/services/catalog';
 export function Shell({ children, role = 'student' }: { children: React.ReactNode; role?: Role }) {
   const path = usePathname();
+  const dashboard = path === '/student/home' || path === '/seller/dashboard' || path === '/admin';
   const { user, name, loading, role: accountRole } = useSession();
   const count = useCart((s) => s.lines.reduce((sum, x) => sum + x.quantity, 0));
   const [notifications, setNotifications] = useState(false);
@@ -72,7 +74,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
           ];
   return (
     <>
-      <header className="topbar">
+      <header className={`topbar ${role}-topbar`}>
         <div className="topbar-inner">
           <Link
             href={
@@ -82,12 +84,22 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
                   ? '/seller/dashboard'
                   : '/admin'
             }
+            aria-label="CPUGrab home"
             className="brand"
           >
             <img src="/brand/logo.png" alt="CPUGrab" width="170" height="57" />
           </Link>
           <span className="header-divider" />
-          <Link href="/student/location/all" className="campus">
+          <Link
+            href={
+              role === 'student'
+                ? '/student/location/all'
+                : role === 'seller'
+                  ? '/seller/dashboard'
+                  : '/admin'
+            }
+            className="campus"
+          >
             <span className="campus-pin">
               <MapPin size={19} />
             </span>
@@ -137,7 +149,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
           </div>
         </div>
       </header>
-      <div className="app-layout">
+      <div className={`app-layout ${role}-layout`}>
         {role === 'admin' && (
           <aside className="admin-sidebar">
             <p className="eyebrow">CAMPUS MANAGEMENT</p>
@@ -157,6 +169,17 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
           id="main-content"
           className={`main-content ${role !== 'student' ? 'portal-content' : ''}`}
         >
+          {dashboard && (
+            <img
+              className="dashboard-banner"
+              src="/brand/banner.png"
+              alt="CPUGrab campus banner"
+              width={2172}
+              height={724}
+              fetchPriority="high"
+              draggable={false}
+            />
+          )}
           {(!configured || catalog?.stalls.some((stall) => stall.is_demo)) && (
             <div className="demo-strip">
               <span>
@@ -182,11 +205,15 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
           ) : (
             children
           )}
-          <footer className="footer">
-            <img src="/brand/logo.png" alt="CPUGrab" width="98" height="33" />
-            <span>Made for your campus day.</span>
-            <span className="footer-tagline">Reserve. Pick Up. Skip the Line.</span>
-          </footer>
+          {dashboard && (
+            <footer className="dashboard-footer">
+              <div className="footer-banner" aria-hidden="true" />
+              <div className="footer-caption">
+                <span>CPUGrab</span>
+                <span>Central Philippine University</span>
+              </div>
+            </footer>
+          )}
         </main>
       </div>
       <nav
@@ -197,6 +224,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
           <Link
             key={href}
             href={href}
+            aria-current={path === href ? 'page' : undefined}
             className={`${path === href ? 'active' : ''} ${label === 'QR Scan' ? 'scan-nav' : ''}`}
           >
             <Icon size={22} />
@@ -241,11 +269,13 @@ export function SearchField({
   value,
   onChange,
   onSubmit,
+  onClear,
   placeholder = 'What are you craving today?',
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit?: () => void;
+  onClear?: () => void;
   placeholder?: string;
 }) {
   return (
@@ -256,14 +286,24 @@ export function SearchField({
         onSubmit?.();
       }}
     >
-      <Search size={21} />
+      <Search size={20} aria-hidden="true" />
       <input
         aria-label="Search food, stalls or locations"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />
-      {onSubmit && <button type="submit">Search</button>}
+      {value && onClear ? (
+        <button type="button" aria-label="Clear search" onClick={onClear}>
+          <X size={19} />
+        </button>
+      ) : (
+        onSubmit && (
+          <button type="submit" aria-label="Search">
+            <Search size={19} />
+          </button>
+        )
+      )}
     </form>
   );
 }

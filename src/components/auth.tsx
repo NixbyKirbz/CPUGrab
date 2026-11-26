@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, Mail, LockKeyhole } from 'lucide-react';
 import { configured, getSupabase } from '@/lib/supabase/client';
 import { Busy, ErrorBox } from './ui';
 const schema = z.object({
@@ -97,7 +97,7 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
   };
   const title =
     mode === 'login'
-      ? 'Welcome back.'
+      ? 'Campus Food Reservation'
       : mode === 'register'
         ? seller
           ? 'Bring your stall to campus.'
@@ -106,7 +106,9 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
           ? 'Forgot your password?'
           : 'Choose a new password';
   return (
-    <div className="auth-layout">
+    <div
+      className={`auth-layout ${mode === 'login' ? 'login-layout' : ''} ${seller ? 'stall-auth' : ''}`}
+    >
       <aside className="auth-art">
         <img src="/brand/logo.png" alt="CPUGrab" />
         <h1>
@@ -121,12 +123,17 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
       </aside>
       <main id="main-content" className="auth-main">
         <div className="auth-form">
-          <img className="auth-mobile-brand" src="/brand/logo.png" alt="CPUGrab" />
-          <p className="eyebrow">{seller ? 'STALL PARTNER PORTAL' : 'MADE FOR CENTRALIANS'}</p>
+          <img
+            className="auth-mobile-brand"
+            src="/brand/logo.png"
+            alt="CPUGrab"
+            draggable={false}
+          />
+          {seller && <span className="stall-portal-label">Stall Portal</span>}
           <h2>{title}</h2>
           <p>
             {mode === 'login'
-              ? 'Sign in to save your favorites and reserve your next meal.'
+              ? 'Central Philippine University'
               : mode === 'register'
                 ? 'A few details, and you’re one step closer to a better break.'
                 : 'We’ll help you get back to your campus favorites.'}
@@ -164,8 +171,18 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
               )}
               {mode !== 'reset' && (
                 <label>
-                  {mode === 'register' && !seller ? 'University email' : 'Email address'}
-                  <input type="email" autoComplete="email" {...register('email')} />
+                  <span className={mode === 'login' ? 'sr-only' : undefined}>
+                    {mode === 'register' && !seller ? 'University email' : 'Email address'}
+                  </span>
+                  <div className="auth-field">
+                    {mode === 'login' && <Mail size={19} aria-hidden="true" />}
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      placeholder={mode === 'login' ? 'Email address' : undefined}
+                      {...register('email')}
+                    />
+                  </div>
                   {errors.email && <span className="field-error">{errors.email.message}</span>}
                 </label>
               )}
@@ -174,11 +191,15 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
               )}
               {mode !== 'forgot' ? (
                 <label>
-                  Password
+                  <span className={mode === 'login' ? 'sr-only' : undefined}>Password</span>
                   <div className="password-wrap">
+                    {mode === 'login' && (
+                      <LockKeyhole size={19} className="password-icon" aria-hidden="true" />
+                    )}
                     <input
                       type={visible ? 'text' : 'password'}
                       autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                      placeholder={mode === 'login' ? 'Password' : undefined}
                       {...register('password')}
                     />
                     <button
@@ -209,14 +230,13 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
               )}
               {mode === 'login' && (
                 <div className="auth-links">
-                  <span>Cash at pickup. Always clear.</span>
                   <Link href="/forgot-password">Forgot password?</Link>
                 </div>
               )}
               <button className="primary-button full-width" disabled={busy}>
                 <Busy busy={busy}>
                   {mode === 'login'
-                    ? 'Sign in'
+                    ? 'Log In'
                     : mode === 'register'
                       ? 'Create account'
                       : mode === 'forgot'
@@ -235,7 +255,12 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
           <div className="auth-bottom">
             {mode === 'login' ? (
               <>
-                New to CPUGrab? <Link href="/register">Create an account</Link>
+                <Link
+                  className="secondary-button full-width"
+                  href={seller ? '/register?role=seller' : '/register'}
+                >
+                  Create Account
+                </Link>
               </>
             ) : (
               <>
@@ -243,14 +268,17 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
               </>
             )}
           </div>
-          {mode === 'login' && (
+          {mode === 'login' && !seller && (
             <div className="auth-bottom">
-              Have a stall? <Link href="/register?role=seller">Become a stall partner ↗</Link>
+              <Link href="/login?role=seller">Stall Portal</Link>
             </div>
           )}
-          <Link className="auth-home" href="/student/home">
+          <Link
+            className="auth-home"
+            href={seller && mode === 'login' ? '/login' : '/student/home'}
+          >
             <ArrowLeft size={14} />
-            Back to browsing
+            {seller && mode === 'login' ? 'Student login' : 'Back to browsing'}
           </Link>
         </div>
       </main>

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Check, QrCode, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, QrCode, RefreshCw } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { getSupabase } from '@/lib/supabase/client';
 import { fetchCatalog, rpc } from '@/services/catalog';
@@ -51,6 +51,7 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
   const stall = catalog?.stalls.find((s) => s.id === o.stall_id);
   const active = ['reserved', 'ready'].includes(o.status);
   const confirmed = params.get('confirmed') === '1';
+  const showConfirmation = !pickup && confirmed && active;
   const generate = async () => {
     setBusy(true);
     setTokenError(null);
@@ -65,7 +66,7 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
   const details = (
     <>
       <div className="detail-row">
-        <span>Order</span>
+        <span>Order Number</span>
         <strong>#{o.order_number}</strong>
       </div>
       <div className="detail-row">
@@ -148,16 +149,25 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
       </section>
     </>
   ) : (
-    <div className="success-page">
-      {confirmed && active && (
-        <div className="success-icon">
-          <Check size={43} />
-        </div>
+    <div className={`success-page ${showConfirmation ? 'reservation-confirmation' : ''}`}>
+      {showConfirmation && (
+        <>
+          <header className="confirmation-title">
+            <Link className="icon-button" href="/student/home" aria-label="Back to Home">
+              <ArrowLeft size={18} />
+            </Link>
+            <strong>Reservation Confirmed</strong>
+          </header>
+          <div className="success-icon">
+            <Check size={25} />
+          </div>
+          <ConfirmationCode id={id} userId={user.id} />
+        </>
       )}
-      <h1>{confirmed && active ? 'Your meal is reserved!' : `Order #${o.order_number}`}</h1>
+      <h1>{showConfirmation ? 'Your Meal is Reserved!' : `Order #${o.order_number}`}</h1>
       <p>
-        {confirmed && active
-          ? 'One less thing between you and a good break.'
+        {showConfirmation
+          ? 'Show this QR code at the stall to claim your order.'
           : statusLabel(o.status)}
       </p>
       <section className="panel">
@@ -186,15 +196,23 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
         )}
         {o.cancellation_reason && <p className="notice">Cancelled: {o.cancellation_reason}</p>}
       </section>
-      {active && (
+      {active && !showConfirmation && (
         <Link className="primary-button full-width" href={`/student/pickup/${id}`}>
           <QrCode size={18} />
           View pickup QR code
         </Link>
       )}
-      <Link className="secondary-button full-width" href="/student/orders">
-        View my orders
+      <Link
+        className={`${showConfirmation ? 'primary-button' : 'secondary-button'} full-width`}
+        href="/student/orders"
+      >
+        View My Orders
       </Link>
+      {showConfirmation && (
+        <Link className="secondary-button full-width" href="/student/home">
+          Back to Home
+        </Link>
+      )}
       {o.status === 'reserved' && (
         <button className="text-button" style={{ marginTop: 15 }} onClick={() => setCancel(true)}>
           Cancel reservation
@@ -208,6 +226,41 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
             void query.invalidateQueries({ queryKey: ['orders'] });
           }}
         />
+      )}
+    </div>
+  );
+}
+
+function ConfirmationCode({ id, userId }: { id: string; userId: string }) {
+  const { data, error, isFetching, refetch } = useQuery({
+    queryKey: ['confirmation-pickup-code', userId, id],
+    queryFn: () => rpc<string>('issue_pickup_token', { p_order: id }),
+    staleTime: 'static',
+    gcTime: 0,
+    retry: false,
+  });
+  return (
+    <div className="confirmation-code">
+      {data ? (
+        <>
+          <QRCodeSVG
+            title="Pickup QR code"
+            value={`cpugrab:pickup:${data}`}
+            size={192}
+            level="M"
+            marginSize={4}
+          />
+          <details>
+            <summary>Manual pickup code</summary>
+            <div className="qr-token">{data}</div>
+          </details>
+        </>
+      ) : error ? (
+        <ErrorBox error="Could not load your pickup code." retry={() => void refetch()} />
+      ) : (
+        <p role="status">
+          {isFetching ? 'Loading pickup code…' : 'Reconnect to load your pickup code.'}
+        </p>
       )}
     </div>
   );

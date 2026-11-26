@@ -113,7 +113,7 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
   if (error) return <ErrorBox error={error} retry={() => void refetch()} />;
   const tabs = seller
     ? [
-        ['reserved', 'Pending'],
+        ['reserved', 'Pending Orders'],
         ['ready', 'Ready for pickup'],
         ['completed', 'Completed'],
         ['cancelled', 'Cancelled'],
@@ -133,26 +133,19 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
         new Date(b.pickup_slots.start_time).getTime(),
     );
   return (
-    <>
+    <div className={seller ? 'seller-orders-page' : undefined}>
       <PageTitle
-        title={seller ? 'Your reservations' : 'My orders'}
-        subtitle={
-          seller
-            ? 'A quick look. A simple action. Back to serving.'
-            : 'Your next meal is something to look forward to.'
-        }
-        action={
-          seller ? (
-            <Link className="primary-button" href="/seller/scanner">
-              <QrCode size={17} />
-              Scan pickup
-            </Link>
-          ) : undefined
-        }
+        title={seller ? 'Orders' : 'My orders'}
+        back={seller ? '/seller/dashboard' : undefined}
       />
       <div className="tabs">
         {tabs.map(([id, label]) => (
-          <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
+          <button
+            key={id}
+            className={tab === id ? 'active' : ''}
+            aria-pressed={tab === id}
+            onClick={() => setTab(id)}
+          >
             {label}{' '}
             {orders.filter((o) =>
               id === 'upcoming' ? ['reserved', 'ready'].includes(o.status) : o.status === id,
@@ -183,41 +176,48 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
       ) : (
         <div className="order-grid">
           {filtered.map((o) => (
-            <article className="order-card" key={o.id}>
-              <div className="order-card-head">
-                <h3>#{o.order_number}</h3>
-                <span className={`status ${o.status}`}>{statusLabel(o.status as OrderStatus)}</span>
+            <article
+              className={`order-card ${seller && ['reserved', 'ready'].includes(o.status) ? 'seller-order-active' : ''}`}
+              key={o.id}
+            >
+              <div className="order-card-details">
+                <div className="order-card-head">
+                  <h3>#{o.order_number}</h3>
+                  <span className={`status ${o.status}`}>
+                    {statusLabel(o.status as OrderStatus)}
+                  </span>
+                </div>
+                <h4>{catalog?.stalls.find((s) => s.id === o.stall_id)?.name}</h4>
+                <ul>
+                  {o.order_items.map((i, n) => (
+                    <li key={n}>
+                      {i.item_name_snapshot} × {i.quantity}
+                    </li>
+                  ))}
+                </ul>
+                <div className="detail-row">
+                  <span>
+                    <Banknote size={14} style={{ display: 'inline', marginRight: 5 }} />
+                    {o.payment_status === 'paid' ? 'Cash received' : 'Cash at pickup'}
+                  </span>
+                  <strong>{money(o.total_centavos)}</strong>
+                </div>
+                <div className="order-pickup">
+                  <CalendarDays size={16} />
+                  {day(o.pickup_slots.start_time)} · {time(o.pickup_slots.start_time)} –{' '}
+                  {time(o.pickup_slots.end_time)}
+                </div>
+                {o.cancellation_reason && (
+                  <p className="help-text" style={{ marginTop: 12 }}>
+                    Cancellation reason: {o.cancellation_reason}
+                  </p>
+                )}
+                {o.completed_at && (
+                  <p className="help-text" style={{ marginTop: 12 }}>
+                    Picked up {day(o.completed_at)} at {time(o.completed_at)}
+                  </p>
+                )}
               </div>
-              <h4>{catalog?.stalls.find((s) => s.id === o.stall_id)?.name}</h4>
-              <ul>
-                {o.order_items.map((i, n) => (
-                  <li key={n}>
-                    {i.item_name_snapshot} × {i.quantity}
-                  </li>
-                ))}
-              </ul>
-              <div className="detail-row">
-                <span>
-                  <Banknote size={14} style={{ display: 'inline', marginRight: 5 }} />
-                  {o.payment_status === 'paid' ? 'Cash received' : 'Cash at pickup'}
-                </span>
-                <strong>{money(o.total_centavos)}</strong>
-              </div>
-              <div className="order-pickup">
-                <CalendarDays size={16} />
-                {day(o.pickup_slots.start_time)} · {time(o.pickup_slots.start_time)} –{' '}
-                {time(o.pickup_slots.end_time)}
-              </div>
-              {o.cancellation_reason && (
-                <p className="help-text" style={{ marginTop: 12 }}>
-                  Cancellation reason: {o.cancellation_reason}
-                </p>
-              )}
-              {o.completed_at && (
-                <p className="help-text" style={{ marginTop: 12 }}>
-                  Picked up {day(o.completed_at)} at {time(o.completed_at)}
-                </p>
-              )}
               <div className="order-actions">
                 {seller ? (
                   ['reserved', 'ready'].includes(o.status) && (
@@ -265,7 +265,12 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
           ))}
         </div>
       )}
+      {seller && (
+        <Link className="primary-button full-width scan-pickup-link" href="/seller/scanner">
+          <QrCode size={19} /> Scan Pickup QR
+        </Link>
+      )}
       {cancel && <CancelDialog order={cancel} onClose={() => setCancel(null)} />}
-    </>
+    </div>
   );
 }

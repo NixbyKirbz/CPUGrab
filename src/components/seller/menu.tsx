@@ -75,10 +75,10 @@ export function SellerMenu() {
       />
     );
   return (
-    <>
+    <div className="seller-menu-page">
       <PageTitle
-        title="Menu management"
-        subtitle="A fresh menu, without the extra work."
+        title="Menu Management"
+        back="/seller/dashboard"
         action={
           <button
             className={edit ? 'gold-button' : 'secondary-button'}
@@ -156,7 +156,7 @@ export function SellerMenu() {
         style={{ fontSize: 13, marginTop: 25 }}
       >
         <Plus size={20} />
-        Add new item
+        Add New Item
       </Link>
       <p className="menu-help">
         <Info size={18} />
@@ -164,6 +164,6 @@ export function SellerMenu() {
           ? 'Tap a food picture to edit its name, price, photo, description, or category. Press Done to return to availability mode.'
           : 'Tap a food picture to change its availability. Gray means unavailable. Tap again to make it available.'}
       </p>
-    </>
+    </div>
   );
 }

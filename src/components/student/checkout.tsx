@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ShoppingBag, Banknote, ShieldCheck, Trash2, CalendarDays } from 'lucide-react';
+import { ShoppingBag, Banknote, Trash2, CalendarDays, CalendarCheck } from 'lucide-react';
 import { useCart } from '@/stores/cart';
 import { fetchCatalog, rpc } from '@/services/catalog';
 import { money, time, day, cartTotals } from '@/lib/format';
@@ -57,6 +57,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
       </>
     );
   const stall = data.stalls.find((s) => s.id === stallId);
+  const location = data.locations.find((l) => l.id === stall?.location_id);
   const totals = cartTotals(
     lines,
     data.settings.reservation_fee_centavos,
@@ -93,14 +94,9 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
     }
   };
   return (
-    <>
+    <div className="checkout-page">
       <PageTitle
-        title={checkout ? 'One last look. Then lunch.' : 'Your order'}
-        subtitle={
-          stall
-            ? `${stall.name} · ${data.locations.find((l) => l.id === stall.location_id)?.name}`
-            : undefined
-        }
+        title={checkout ? 'Pickup & Payment' : 'Your Order'}
         back={checkout ? '/student/cart' : `/student/stall/${stallId}`}
       />
       {Boolean(error) && <ErrorBox error={error} />}{' '}
@@ -119,7 +115,15 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
       <div className="two-col">
         <div>
           <section className="panel">
-            <h2>Your campus cravings</h2>
+            {stall && (
+              <div className="cart-stall">
+                <img src={stall.image_url} alt="" draggable={false} />
+                <div>
+                  <h2>{stall.name}</h2>
+                  <p>{location?.name}</p>
+                </div>
+              </div>
+            )}
             {lines.map((line) => (
               <div className="cart-line" key={line.id}>
                 <img src={line.image_url} alt={line.name} />
@@ -144,9 +148,33 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
               </div>
             ))}
           </section>
+        </div>
+        <aside className="panel summary-panel">
+          <div className="detail-row">
+            <span>Subtotal</span>
+            <strong>{money(totals.subtotal)}</strong>
+          </div>
+          <div className="detail-row">
+            <span>Reservation fee</span>
+            <strong>{money(data.settings.reservation_fee_centavos)}</strong>
+          </div>
+          <p className="help-text">
+            {money(data.settings.stall_fee_share_centavos)} supports the stall ·{' '}
+            {money(data.settings.platform_fee_share_centavos)} supports CPUGrab
+          </p>
+          {totals.adjustment > 0 && (
+            <div className="detail-row">
+              <span>Food price adjustment</span>
+              <strong>{money(totals.adjustment)}</strong>
+            </div>
+          )}
+          <div className="detail-row total-row">
+            <span>Total</span>
+            <strong>{money(totals.total)}</strong>
+          </div>
           {checkout && (
-            <section className="panel" style={{ marginTop: 20 }}>
-              <h2>Pick a time that works for you</h2>
+            <section className="pickup-options">
+              <h2>Pickup Time</h2>
               {!user ? (
                 <div className="notice">Sign in to see available pickup times.</div>
               ) : (
@@ -157,7 +185,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
                   <label>
                     <span style={{ display: 'flex', gap: 7 }}>
                       <CalendarDays size={16} />
-                      Pickup schedule · Asia/Manila
+                      Available pickup times · Asia/Manila
                     </span>
                     <select
                       value={slot}
@@ -194,31 +222,6 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
               </label>
             </section>
           )}
-        </div>
-        <aside className="panel summary-panel">
-          <h2>The details, all clear</h2>
-          <div className="detail-row">
-            <span>Food subtotal</span>
-            <strong>{money(totals.subtotal)}</strong>
-          </div>
-          <div className="detail-row">
-            <span>Reservation fee</span>
-            <strong>{money(data.settings.reservation_fee_centavos)}</strong>
-          </div>
-          <p className="help-text">
-            {money(data.settings.stall_fee_share_centavos)} supports the stall ·{' '}
-            {money(data.settings.platform_fee_share_centavos)} supports CPUGrab
-          </p>
-          {totals.adjustment > 0 && (
-            <div className="detail-row">
-              <span>Food price adjustment</span>
-              <strong>{money(totals.adjustment)}</strong>
-            </div>
-          )}
-          <div className="detail-row total-row">
-            <span>Total to pay</span>
-            <strong>{money(totals.total)}</strong>
-          </div>
           <div className="payment-info" style={{ marginTop: 20 }}>
             <Banknote size={24} />
             <div>
@@ -246,57 +249,54 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
               Choose pickup time →
             </Link>
           )}
-          <p className="help-text" style={{ display: 'flex', gap: 5, marginTop: 13 }}>
-            <ShieldCheck size={15} />
-            Final prices and availability are checked securely before confirmation.
-          </p>
         </aside>
       </div>
       {confirm && (
         <Modal
-          title="Confirm your reservation"
+          title="Confirm Reservation"
           onClose={() => {
             if (!busy) setConfirm(false);
           }}
         >
-          <p style={{ marginBottom: 20, fontSize: 12 }}>
-            Your next meal is almost sorted. Check these details before reserving.
-          </p>
+          <div className="confirm-intro">
+            <CalendarCheck size={24} />
+            <p>Please review your order details before confirming.</p>
+          </div>
           <div className="detail-row">
             <span>Stall</span>
             <strong>{stall?.name}</strong>
           </div>
           <div className="detail-row">
-            <span>Pickup</span>
+            <span>Location</span>
+            <strong>{location?.name}</strong>
+          </div>
+          <div className="detail-row">
+            <span>Pickup Time</span>
             <strong>
               {selected &&
                 `${day(selected.start_time)} · ${time(selected.start_time)} – ${time(selected.end_time)}`}
             </strong>
           </div>
           <div className="detail-row total-row">
-            <span>Cash at pickup</span>
+            <span>Total Payment</span>
             <strong>{money(totals.total)}</strong>
           </div>
-          <p className="help-text" style={{ margin: '15px 0' }}>
-            The server checks the current menu and calculates the final total. No payment is
-            collected online.
-          </p>
           <button
             className="primary-button full-width"
             disabled={busy}
             onClick={() => void reserve()}
           >
-            <Busy busy={busy}>Confirm reservation</Busy>
+            <Busy busy={busy}>Confirm Order</Busy>
           </button>
           <button
-            className="text-button full-width"
+            className="secondary-button full-width"
             disabled={busy}
             onClick={() => setConfirm(false)}
           >
-            Go back
+            Cancel
           </button>
         </Modal>
       )}
-    </>
+    </div>
   );
 }

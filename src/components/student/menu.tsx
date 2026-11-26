@@ -74,6 +74,7 @@ export function FavoriteButton({
 export function Menu({ id, food = false }: { id: string; food?: boolean }) {
   const { data, error, isPending } = useQuery({ queryKey: ['catalog'], queryFn: fetchCatalog });
   const [cat, setCat] = useState('all');
+  const [tab, setTab] = useState<'menu' | 'info'>('menu');
   const [quantity, setQuantity] = useState(1);
   const { toast } = useSession();
   const lines = useCart((s) => s.lines);
@@ -140,54 +141,86 @@ export function Menu({ id, food = false }: { id: string; food?: boolean }) {
           </div>
         </>
       ) : (
-        <>
-          <div className="stall-cover" style={{ backgroundImage: `url(${stall.cover_image_url})` }}>
+        <div className="student-stall-menu">
+          <div
+            className="stall-cover"
+            style={{
+              backgroundImage: `linear-gradient(0deg, #061d43, transparent 80%), url(${stall.cover_image_url || stall.image_url})`,
+            }}
+          >
             <Link className="icon-button" href="/student/home" aria-label="Back to home">
               <ArrowLeft size={20} />
             </Link>
-          </div>
-          <div className="stall-detail-heading">
-            <div>
-              <p className="eyebrow">CAMPUS FAVORITES</p>
-              <h1>{stall.name}</h1>
-              <p>
-                <MapPin size={14} />
-                {location?.name}
-                <span>·</span>
-                <span className={`status-dot ${stall.is_open ? 'open' : ''}`}>
-                  {stall.is_open ? 'Open for reservations' : 'Closed'}
-                </span>
-              </p>
+            <div className="stall-detail-heading">
+              <div>
+                <h1>{stall.name}</h1>
+                <p>
+                  <MapPin size={14} />
+                  {location?.name}
+                  <span>·</span>
+                  <span className={`status-dot ${stall.is_open ? 'open' : ''}`}>
+                    {stall.is_open ? 'Open for reservations' : 'Closed'}
+                  </span>
+                </p>
+              </div>
+              <FavoriteButton id={stall.id} />
             </div>
-            <FavoriteButton id={stall.id} />
           </div>
-          <p>{stall.description}</p>
-          <p className="help-text" style={{ marginTop: 10, display: 'flex', gap: 6 }}>
-            <Clock3 size={14} />
-            {stall.opening_hours}
-          </p>
-          <div className="chips">
-            <button className={cat === 'all' ? 'active' : ''} onClick={() => setCat('all')}>
-              All food
+          <div className="tabs stall-tabs" aria-label="Stall sections">
+            <button
+              className={tab === 'menu' ? 'active' : ''}
+              aria-pressed={tab === 'menu'}
+              onClick={() => setTab('menu')}
+            >
+              Menu
             </button>
-            {data.categories.map((c) => (
-              <button
-                className={cat === c.id ? 'active' : ''}
-                key={c.id}
-                onClick={() => setCat(c.id)}
-              >
-                {c.name}
-              </button>
-            ))}
+            <button
+              className={tab === 'info' ? 'active' : ''}
+              aria-pressed={tab === 'info'}
+              onClick={() => setTab('info')}
+            >
+              Info
+            </button>
           </div>
-          <div className="menu-grid">
-            {data.items
-              .filter((i) => i.stall_id === id && (cat === 'all' || i.category_id === cat))
-              .map((i) => (
-                <FoodCard key={i.id} item={i} catalog={data} />
-              ))}
-          </div>
-        </>
+          {tab === 'info' ? (
+            <section className="stall-info">
+              <p>{stall.description}</p>
+              <p>
+                <Clock3 size={16} />
+                {stall.opening_hours}
+              </p>
+            </section>
+          ) : (
+            <>
+              <div className="chips">
+                <button
+                  className={cat === 'all' ? 'active' : ''}
+                  aria-pressed={cat === 'all'}
+                  onClick={() => setCat('all')}
+                >
+                  All
+                </button>
+                {data.categories.map((c) => (
+                  <button
+                    className={cat === c.id ? 'active' : ''}
+                    aria-pressed={cat === c.id}
+                    key={c.id}
+                    onClick={() => setCat(c.id)}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+              <div className="menu-grid">
+                {data.items
+                  .filter((i) => i.stall_id === id && (cat === 'all' || i.category_id === cat))
+                  .map((i) => (
+                    <FoodCard key={i.id} item={i} catalog={data} variant="menu" />
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
       )}
       {count > 0 && (
         <Link className="floating-cart" href="/student/cart">

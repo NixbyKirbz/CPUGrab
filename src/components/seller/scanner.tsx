@@ -116,11 +116,11 @@ export function Scanner() {
   };
   if (completed)
     return (
-      <div className="success-page">
+      <div className="success-page scanner-success">
         <div className="success-icon">
           <Check size={45} />
         </div>
-        <h1>Order completed!</h1>
+        <h1>Order Completed!</h1>
         <p style={{ marginTop: 15 }}>#{completed}</p>
         <p style={{ marginTop: 15 }}>The order has been successfully claimed.</p>
         <button
@@ -138,8 +138,9 @@ export function Scanner() {
   return (
     <>
       <PageTitle
-        title="Scan. Claim. Enjoy."
-        subtitle="Scan the student’s QR to complete their pickup."
+        title="Scan Pickup QR"
+        subtitle="Scan the student’s QR code to complete their pickup."
+        back="/seller/orders"
       />
       <section className="scanner-panel">
         <div className="camera-frame">
@@ -178,7 +179,7 @@ export function Scanner() {
             void inspect(token);
           }}
         >
-          <h2 style={{ marginBottom: 0 }}>No camera? No problem.</h2>
+          <h2 style={{ marginBottom: 0 }}>Enter a pickup code</h2>
           <label>
             Secure pickup code
             <textarea

@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowRight,
-  ArrowUpRight,
   MapPin,
   Utensils,
   Sandwich,
@@ -13,12 +12,8 @@ import {
   Soup,
   IceCreamBowl,
   Grid2X2,
-  Clock3,
   Plus,
   SlidersHorizontal,
-  ShoppingBag,
-  CalendarCheck,
-  QrCode,
   ChevronRight,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -31,7 +26,15 @@ import { Loading, ErrorBox, Empty } from '@/components/ui';
 import { useCart } from '@/stores/cart';
 import type { MenuItem, Catalog } from '@/types';
 const icons = [Utensils, Sandwich, CupSoda, Soup, IceCreamBowl];
-export function FoodCard({ item, catalog }: { item: MenuItem; catalog: Catalog }) {
+export function FoodCard({
+  item,
+  catalog,
+  variant = 'tile',
+}: {
+  item: MenuItem;
+  catalog: Catalog;
+  variant?: 'tile' | 'menu' | 'search';
+}) {
   const stall = catalog.stalls.find((s) => s.id === item.stall_id);
   const { toast } = useSession();
   const add = () => {
@@ -43,26 +46,35 @@ export function FoodCard({ item, catalog }: { item: MenuItem; catalog: Catalog }
     toast(`${item.name} added to your cart`);
   };
   return (
-    <article className={`food-card ${!item.is_available ? 'unavailable' : ''}`}>
+    <article
+      className={`food-card food-card-${variant} ${!item.is_available ? 'unavailable' : ''}`}
+    >
       <div className="food-image">
-        <Link href={`/student/food/${item.id}`}>
-          <img src={item.image_url} alt={item.name} loading="lazy" />
+        <Link href={`/student/food/${item.id}`} aria-label={item.name}>
+          <img src={item.image_url} alt="" loading="lazy" draggable={false} />
         </Link>
-        {item.is_available && stall?.is_open ? (
-          <button aria-label={`Add ${item.name} to cart`} onClick={add} className="add-food">
-            <Plus size={19} />
-          </button>
-        ) : (
+        {(!item.is_available || !stall?.is_open) && (
           <span className="sold-out">{stall?.is_open ? 'Unavailable' : 'Stall closed'}</span>
         )}
       </div>
-      <Link href={`/student/food/${item.id}`}>
-        <h3>{item.name}</h3>
-      </Link>
-      <div className="food-meta">
-        <strong>{money(item.price_centavos)}</strong>
-        <span>per serving</span>
+      <div className="food-card-copy">
+        {variant === 'search' && (
+          <Link className="result-stall" href={`/student/stall/${item.stall_id}`}>
+            {stall?.name} <ChevronRight size={15} />
+          </Link>
+        )}
+        <Link href={`/student/food/${item.id}`}>
+          <h3>{item.name}</h3>
+        </Link>
+        <div className="food-meta">
+          <strong>{money(item.price_centavos)}</strong>
+        </div>
       </div>
+      {item.is_available && stall?.is_open && (
+        <button aria-label={`Add ${item.name} to cart`} onClick={add} className="add-food">
+          <Plus size={18} />
+        </button>
+      )}
     </article>
   );
 }
@@ -146,67 +158,15 @@ export function Browse({ location, search = false }: { location?: string; search
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
       {!location && !search ? (
-        <>
-          <section className="welcome-row">
-            <div>
-              <p className="eyebrow">A GOOD DAY STARTS WITH GOOD FOOD</p>
-              <h1>
-                Hey, {name}! <span className="wave">☀</span>
-              </h1>
-              <p>A full schedule? Let’s make room for a good meal.</p>
-            </div>
-            <div className="pickup-badge">
-              <span>
-                <MapPin size={17} />
-              </span>
-              Campus pickup only
-            </div>
-          </section>
-          <section className="hero">
-            <div className="hero-copy">
-              <div className="hero-kicker">
-                <span /> LESS WAITING. MORE LIVING.
-              </div>
-              <h2>
-                Your next meal,
-                <br />
-                without the <span>wait.</span>
-              </h2>
-              <p>
-                Find your campus favorites. Reserve ahead.
-                <br className="desktop-break" /> Pick up when it works for you.
-              </p>
-              <Link href="#locations" className="gold-button">
-                Find your next bite <ArrowRight size={18} />
-              </Link>
-              <div className="hero-footnote">
-                <Clock3 size={14} /> A better break is just a few taps away.
-              </div>
-            </div>
-            <div className="hero-art">
-              <img src="/images/chicken.jpg" alt="A freshly prepared meal" fetchPriority="high" />
-              <div className="hero-food-label">
-                <span className="food-label-icon">
-                  <ShoppingBag size={21} />
-                </span>
-                <div>
-                  <strong>A little break. A great meal.</strong>
-                  <small>Reserved by you. Ready for you.</small>
-                </div>
-                <span className="label-check">✓</span>
-              </div>
-              <div className="hero-sticker">
-                SKIP
-                <br />
-                THE LINE <ArrowUpRight size={20} />
-              </div>
-            </div>
-            <div className="hero-number">
-              01 / 03 <span />
-            </div>
-          </section>
-        </>
-      ) : (
+        <section className="welcome-row">
+          <div>
+            <h1>
+              Hello, {name}! <span aria-hidden="true">👋</span>
+            </h1>
+            <p>Central Philippine University</p>
+          </div>
+        </section>
+      ) : !search ? (
         <section
           className={`location-heading ${selected ? 'has-cover' : ''}`}
           style={
@@ -220,18 +180,19 @@ export function Browse({ location, search = false }: { location?: string; search
           <Link href="/student/home" className="back-link">
             ← Back to home
           </Link>
-          <p className="eyebrow">{search ? 'FIND YOUR FAVORITES' : 'EXPLORE YOUR CAMPUS'}</p>
-          <h1>{search ? 'What are you craving?' : selected?.name || 'All campus locations'}</h1>
-          <p>
-            {search
-              ? 'Good food is closer than you think.'
-              : 'Browse every stall. Find something you’ll love.'}
-          </p>
+          <h1>{selected?.name || 'All campus locations'}</h1>
         </section>
-      )}
+      ) : null}
       <div className="browse-toolbar">
         <SearchField
+          placeholder="Search for food or stall…"
           value={query}
+          onClear={() => {
+            setQuery('');
+            setDebounced('');
+            setOffset(0);
+            if (search) router.replace('/student/search');
+          }}
           onChange={(value) => {
             setQuery(value);
             setOffset(0);
@@ -242,6 +203,8 @@ export function Browse({ location, search = false }: { location?: string; search
         />
         <button
           className={`filter-button ${filters ? 'selected' : ''}`}
+          aria-label="Filters"
+          aria-expanded={filters}
           onClick={() => setFilters(!filters)}
         >
           <SlidersHorizontal size={18} />
@@ -293,83 +256,57 @@ export function Browse({ location, search = false }: { location?: string; search
           </button>
         </div>
       )}
-      <div className="category-row">
-        <button
-          className={`category ${category === 'all' ? 'selected' : ''}`}
-          onClick={() => {
-            setCategory('all');
-            setOffset(0);
-          }}
-        >
-          <span>
-            <Grid2X2 size={23} />
-          </span>
-          All food
-        </button>
-        {data.categories.map((cat, i) => {
-          const Icon = icons[i % icons.length];
-          return (
-            <button
-              key={cat.id}
-              className={`category ${category === cat.id ? 'selected' : ''}`}
-              onClick={() => {
-                setCategory(cat.id);
-                setOffset(0);
-              }}
-            >
-              <span>
-                <Icon size={24} />
-              </span>
-              {cat.name}
-            </button>
-          );
-        })}
-        <div className="category-note">
-          <span className="tiny-gold-line" />A craving for every
-          <br />
-          kind of campus day.
+      {!searching && (
+        <div className="category-row" aria-label="Food categories">
+          {data.categories.map((cat, i) => {
+            const Icon = icons[i % icons.length];
+            return (
+              <button
+                key={cat.id}
+                className={`category ${category === cat.id ? 'selected' : ''}`}
+                aria-pressed={category === cat.id}
+                onClick={() => {
+                  setCategory(category === cat.id ? 'all' : cat.id);
+                  setOffset(0);
+                }}
+              >
+                <span>
+                  <Icon size={24} />
+                </span>
+                {cat.name}
+              </button>
+            );
+          })}
+          <button
+            className={`category ${category === 'all' ? 'selected' : ''}`}
+            aria-pressed={category === 'all'}
+            onClick={() => {
+              setCategory('all');
+              setOffset(0);
+            }}
+          >
+            <span>
+              <Grid2X2 size={22} />
+            </span>
+            All
+          </button>
         </div>
-      </div>
-      {!searching && category === 'all' && (
+      )}
+      {!searching && !selected && category === 'all' && !maxPrice && (
         <section id="locations" className="locations-section">
           <div className="section-heading">
-            <div>
-              <p className="eyebrow">GOOD FOOD, AROUND THE CORNER</p>
-              <h2>Where are you headed?</h2>
-            </div>
-            <Link href="/student/location/all">
-              All locations <ArrowRight size={16} />
-            </Link>
+            <h2>Browse by Location</h2>
+            {!location && (
+              <Link href="/student/location/all">
+                See All <ChevronRight size={17} />
+              </Link>
+            )}
           </div>
           <div className="location-grid">
-            {data.locations.map((loc, i) => (
-              <Link
-                className={`location-card ${selected?.id === loc.id ? 'selected' : ''}`}
-                href={`/student/location/${loc.id}`}
-                key={loc.id}
-              >
-                <img
-                  src={loc.image_url}
-                  alt={`Illustrative setting for ${loc.name}`}
-                  loading="lazy"
-                />
-                <div className="location-card-overlay" />
-                <span className="location-number">0{i + 1}</span>
-                <div>
-                  <span className="location-tag">
-                    <MapPin size={12} />
-                    {data.stalls.filter((s) => s.location_id === loc.id).length}{' '}
-                    {data.stalls.filter((s) => s.location_id === loc.id).length === 1
-                      ? 'stall'
-                      : 'stalls'}{' '}
-                    to explore
-                  </span>
-                  <h3>
-                    {loc.name}
-                    <ArrowUpRight size={23} />
-                  </h3>
-                  <p>{loc.description}</p>
-                </div>
+            {data.locations.map((loc) => (
+              <Link className="location-card" href={`/student/location/${loc.id}`} key={loc.id}>
+                <img src={loc.image_url} alt="" loading="lazy" draggable={false} />
+                <h3>{loc.name}</h3>
               </Link>
             ))}
           </div>
@@ -379,29 +316,21 @@ export function Browse({ location, search = false }: { location?: string; search
         <section>
           <div className="section-heading">
             <div>
-              <p className="eyebrow">YOUR NEXT BITE</p>
-              <h2>{debounced ? `Results for “${query}”` : 'Explore the menu'}</h2>
+              <h2>{debounced ? `Search Results for “${query}”` : 'Explore the menu'}</h2>
+              <p className="result-count" role="status">
+                {searchBusy
+                  ? 'Searching…'
+                  : `${items.length} ${items.length === 1 ? 'item' : 'items'} found`}
+              </p>
             </div>
-            <span className="muted">
-              {searchBusy ? 'Searching…' : `${items.length} items found`}
-            </span>
           </div>
           {searchError ? (
             <ErrorBox error={searchError} />
           ) : items.length ? (
             <div className="search-results">
-              {items.map((item) => {
-                const stall = data.stalls.find((s) => s.id === item.stall_id);
-                return (
-                  <div key={item.id}>
-                    <FoodCard item={item} catalog={data} />
-                    <Link className="result-stall" href={`/student/stall/${item.stall_id}`}>
-                      {stall?.name} <ChevronRight size={13} />
-                      <small>{data.locations.find((l) => l.id === stall?.location_id)?.name}</small>
-                    </Link>
-                  </div>
-                );
-              })}
+              {items.map((item) => (
+                <FoodCard key={item.id} item={item} catalog={data} variant="search" />
+              ))}
             </div>
           ) : (
             <Empty
@@ -409,7 +338,7 @@ export function Browse({ location, search = false }: { location?: string; search
               text="Try another food, stall, or location, or adjust your filters."
             />
           )}
-          {configured && online && (
+          {configured && online && (offset > 0 || (found?.length ?? 0) >= 50) && (
             <div style={{ display: 'flex', justifyContent: 'center', gap: 15, marginTop: 25 }}>
               <button
                 className="secondary-button"
@@ -434,99 +363,67 @@ export function Browse({ location, search = false }: { location?: string; search
       ) : (
         <section className="stalls-section">
           <div className="section-heading">
-            <div>
-              <p className="eyebrow">SMALL STALLS. BIG FAVORITES.</p>
-              <h2>{selected ? `Fresh finds in ${selected.name}` : 'Your campus, served fresh'}</h2>
-            </div>
-            <span className="section-note">
-              Find your new go-to <span>↘</span>
-            </span>
+            <h2>{selected ? `Fresh finds in ${selected.name}` : 'Featured Stalls'}</h2>
+            {!location && (
+              <Link href="/student/location/all">
+                See All <ChevronRight size={17} />
+              </Link>
+            )}
           </div>
-          {stalls.map((stall) => (
-            <div className="stall-section" key={stall.id}>
-              <div className="stall-heading">
-                <Link className="stall-identity" href={`/student/stall/${stall.id}`}>
-                  <img src={stall.image_url} alt="" loading="lazy" />
-                  <div>
-                    <h3>
-                      {stall.name}
-                      <span className={`status-dot ${stall.is_open ? 'open' : ''}`}>
-                        {stall.is_open ? 'Open' : 'Closed'}
-                      </span>
-                    </h3>
-                    <p>
-                      <MapPin size={13} />
-                      {data.locations.find((l) => l.id === stall.location_id)?.name}
-                      <span className="stall-separator">·</span>
-                      <span className="stall-description">{stall.description}</span>
-                    </p>
-                  </div>
+          {!location && (
+            <div className="featured-scroll">
+              {stalls.map((stall) => (
+                <Link key={stall.id} href={`/student/stall/${stall.id}`} className="featured-stall">
+                  <img
+                    src={
+                      data.items.find((item) => item.stall_id === stall.id)?.image_url ||
+                      stall.image_url
+                    }
+                    alt=""
+                    loading="lazy"
+                    draggable={false}
+                  />
+                  <strong>{stall.name}</strong>
                 </Link>
-                <Link className="view-menu" href={`/student/stall/${stall.id}`}>
-                  View menu <ArrowRight size={16} />
-                </Link>
-              </div>
-              <div className="food-scroll">
-                {data.items
-                  .filter((i) => i.stall_id === stall.id)
-                  .map((item) => (
-                    <FoodCard key={item.id} item={item} catalog={data} />
-                  ))}
-              </div>
+              ))}
             </div>
-          ))}
+          )}
+          {location &&
+            stalls.map((stall) => (
+              <div className="stall-section" key={stall.id}>
+                <div className="stall-heading">
+                  <Link className="stall-identity" href={`/student/stall/${stall.id}`}>
+                    <img src={stall.image_url} alt="" loading="lazy" />
+                    <div>
+                      <h3>
+                        {stall.name}
+                        <span className={`status-dot ${stall.is_open ? 'open' : ''}`}>
+                          {stall.is_open ? 'Open' : 'Closed'}
+                        </span>
+                      </h3>
+                      <p>
+                        <MapPin size={13} />
+                        {data.locations.find((l) => l.id === stall.location_id)?.name}
+                        <span className="stall-separator">·</span>
+                        <span className="stall-description">{stall.description}</span>
+                      </p>
+                    </div>
+                  </Link>
+                  <Link className="view-menu" href={`/student/stall/${stall.id}`}>
+                    View menu <ArrowRight size={16} />
+                  </Link>
+                </div>
+                <div className="food-scroll">
+                  {data.items
+                    .filter((i) => i.stall_id === stall.id)
+                    .map((item) => (
+                      <FoodCard key={item.id} item={item} catalog={data} />
+                    ))}
+                </div>
+              </div>
+            ))}
         </section>
       )}
-      {!location && !search && (
-        <section className="how-it-works">
-          <div>
-            <p className="eyebrow">YOUR BREAK, SIMPLIFIED</p>
-            <h2>
-              More lunch.
-              <br />
-              Less line.
-            </h2>
-          </div>
-          {[
-            {
-              icon: Utensils,
-              n: '01',
-              title: 'Find your favorite',
-              text: 'Explore food from campus stalls.',
-            },
-            {
-              icon: CalendarCheck,
-              n: '02',
-              title: 'Make it a date',
-              text: 'Reserve a meal and pick your time.',
-            },
-            {
-              icon: QrCode,
-              n: '03',
-              title: 'Scan. Pick up. Enjoy.',
-              text: 'Show your QR and get on with your day.',
-            },
-          ].map(({ icon: Icon, n, title, text }) => (
-            <div className="how-step" key={n}>
-              <span className="step-icon">
-                <Icon size={23} />
-              </span>
-              <small>{n}</small>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </div>
-          ))}
-        </section>
-      )}
-      <div className="seller-invite">
-        <span>
-          <ShoppingBag size={18} />
-          Have a food stall on campus?
-        </span>
-        <Link href="/register?role=seller">
-          Grow with CPUGrab <ArrowUpRight size={16} />
-        </Link>
-      </div>
     </motion.div>
   );
 }
