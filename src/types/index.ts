@@ -1,0 +1,84 @@
+export type Role = 'student' | 'seller' | 'admin';
+export type Location = {
+  id: string;
+  name: string;
+  description: string;
+  image_url: string;
+  is_active: boolean;
+  display_order: number;
+};
+export type Category = { id: string; name: string; icon: string; display_order: number };
+export type Stall = {
+  id: string;
+  owner_id: string | null;
+  location_id: string;
+  name: string;
+  description: string;
+  image_url: string;
+  cover_image_url: string;
+  contact_number: string;
+  opening_hours: string;
+  is_open: boolean;
+  is_demo?: boolean;
+  updated_at?: string;
+  approval_status: 'pending' | 'approved' | 'suspended';
+};
+export type MenuItem = {
+  id: string;
+  stall_id: string;
+  category_id: string;
+  name: string;
+  description: string;
+  image_url: string;
+  price_centavos: number;
+  is_available: boolean;
+  is_archived: boolean;
+  stock_quantity: number | null;
+};
+export type Pricing = {
+  id: number;
+  reservation_fee_centavos: number;
+  stall_fee_share_centavos: number;
+  platform_fee_share_centavos: number;
+  default_markup_centavos: number;
+};
+export type Catalog = {
+  locations: Location[];
+  stalls: Stall[];
+  items: MenuItem[];
+  categories: Category[];
+  settings: Pricing;
+};
+export type OrderStatus = 'reserved' | 'ready' | 'completed' | 'cancelled';
+export type OrderItem = {
+  item_name_snapshot: string;
+  quantity: number;
+  unit_price_centavos: number;
+  subtotal_centavos: number;
+};
+export type Order = {
+  id: string;
+  order_number: string;
+  stall_id: string;
+  student_id: string;
+  pickup_slot_id: string;
+  status: OrderStatus;
+  payment_status: 'unpaid' | 'paid';
+  subtotal_centavos: number;
+  reservation_fee_centavos: number;
+  markup_centavos: number;
+  total_centavos: number;
+  cancellation_reason: string | null;
+  customer_notes: string;
+  created_at: string;
+  completed_at: string | null;
+  order_items: OrderItem[];
+  pickup_slots: { start_time: string; end_time: string };
+};
+export type Slot = {
+  id: string;
+  start_time: string;
+  end_time: string;
+  max_reservations: number;
+  remaining: number;
+};
