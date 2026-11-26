@@ -14,6 +14,7 @@ export function Scanner() {
   const mounted = useRef(true);
   const locking = useRef(false);
   const cameraRequested = useRef(false);
+  const sound = useRef<AudioContext | null>(null);
   const [camera, setCamera] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [error, setError] = useState<unknown>(null);
@@ -33,6 +34,7 @@ export function Scanner() {
       mounted.current = false;
       cameraRequested.current = false;
       controls.current?.stop();
+      void sound.current?.close();
     };
   }, []);
   const finish = async (raw: string, paid: boolean) => {
@@ -42,6 +44,17 @@ export function Scanner() {
     setCash(null);
     stop();
     navigator.vibrate?.([80, 50, 80]);
+    if (sound.current?.state === 'running') {
+      const oscillator = sound.current.createOscillator(),
+        gain = sound.current.createGain();
+      oscillator.connect(gain);
+      gain.connect(sound.current.destination);
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.08, sound.current.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, sound.current.currentTime + 0.18);
+      oscillator.start();
+      oscillator.stop(sound.current.currentTime + 0.2);
+    }
     await query.invalidateQueries({ queryKey: ['orders'] });
   };
   const inspect = async (raw: string) => {
@@ -64,6 +77,12 @@ export function Scanner() {
     }
   };
   const start = async () => {
+    try {
+      sound.current ??= new AudioContext();
+      await sound.current.resume();
+    } catch {
+      /* Sound is optional. */
+    }
     setCameraError('');
     setError(null);
     cameraRequested.current = true;

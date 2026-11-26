@@ -11,7 +11,7 @@ import { PageTitle, Empty, ErrorBox, Busy, Modal, Loading } from './ui';
 import { Install } from './install';
 import { useRouter } from 'next/navigation';
 export function Profile() {
-  const { user, role } = useSession();
+  const { user, role, toast } = useSession();
   const router = useRouter();
   const query = useQueryClient();
   const [help, setHelp] = useState(false);
@@ -124,6 +124,26 @@ export function Profile() {
               />
               Show optional browser notification previews
             </label>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={async () => {
+                if (!('Notification' in window)) {
+                  toast(
+                    'This browser does not support notification previews. Your in-app updates are still available.',
+                  );
+                  return;
+                }
+                const permission = await Notification.requestPermission();
+                toast(
+                  permission === 'granted'
+                    ? 'Browser previews are enabled while CPUGrab is open.'
+                    : 'Your in-app notifications are still available.',
+                );
+              }}
+            >
+              Allow browser notification previews
+            </button>
             <p className="help-text">
               Order updates remain available in your in-app notification inbox.
             </p>

@@ -29,7 +29,7 @@ async function create(key = crypto.randomUUID(), qty = 1) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { pgcrypto, pg_trgm } });
   await db.exec(
-    `create role anon;create role authenticated;create schema auth;create schema storage;create schema extensions;create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,owner_id text);alter table storage.objects enable row level security;create function storage.foldername(text) returns text[] language sql as $$ select string_to_array($1,'/') $$;create publication supabase_realtime;`,
+    `create role anon;create role authenticated;create schema auth;create schema storage;create schema extensions;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,owner_id text);alter table storage.objects enable row level security;create function storage.foldername(text) returns text[] language sql as $$ select string_to_array($1,'/') $$;create publication supabase_realtime;`,
   );
   for (const file of (await readdir('supabase/migrations')).sort())
     await db.exec(await readFile(`supabase/migrations/${file}`, 'utf8'));
@@ -58,6 +58,32 @@ afterAll(async () => {
   await db?.close();
 });
 describe('Database authorization and atomic lifecycle', () => {
+  it('only bootstraps an invited administrator after verified email ownership', async () => {
+    await owner();
+    const invited = '55555555-5555-4555-8555-555555555555';
+    await db.query(
+      "insert into cpugrab_private.admin_bootstrap(email) values('invited@example.com')",
+    );
+    await db.query("insert into auth.users(id,email) values($1,'invited@example.com')", [invited]);
+    expect(
+      (
+        await db.query<{ role: string }>('select role from public.user_roles where user_id=$1', [
+          invited,
+        ])
+      ).rows[0].role,
+    ).toBe('student');
+    await db.query('update auth.users set email_confirmed_at=now() where id=$1', [invited]);
+    expect(
+      (
+        await db.query<{ role: string }>('select role from public.user_roles where user_id=$1', [
+          invited,
+        ])
+      ).rows[0].role,
+    ).toBe('admin');
+    expect((await db.query('select * from cpugrab_private.admin_bootstrap')).rows).toHaveLength(0);
+    await as(other);
+    await expect(db.query('select * from cpugrab_private.admin_bootstrap')).rejects.toThrow();
+  });
   it('uses current database prices, snapshots fees, and reserves stock', async () => {
     await owner();
     await db.query('update public.menu_items set stock_quantity=5 where id=$1', [item]);

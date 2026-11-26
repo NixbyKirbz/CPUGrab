@@ -4,6 +4,7 @@ Supabase’s publishable key is public by design. It only grants access allowed 
 
 - Every exposed application table has RLS. Users cannot directly insert or update orders, order items, pickup tokens, roles, status history, or notification messages.
 - Signup creates a student role. The caller can request a pending seller application, but never choose administrator privileges or approve a stall. Seller access is limited to approved, assigned stalls. Suspended profiles fail protected operations immediately, even if an existing JWT has not expired.
+- An owner-configured one-time admin invitation is stored in an unexposed private schema. An auth trigger consumes it only after the invited email has been verified. There is no browser-accessible invitation or promotion API.
 - Profiles expose only the current profile (or administrator access). Profile column grants exclude suspension. Menu/stall column grants exclude ownership, membership and approval fields.
 - Reservation functions verify the student, approved/open stall and active location, then lock the slot and menu rows in a stable order. Prices and fees are computed from database values in integer centavos. Repeated requests with the same student/idempotency UUID return the original order.
 - Existing reservation pricing is immutable to clients. Cancellation restores stock once and frees capacity by removing the reservation from the active slot count.
@@ -15,3 +16,5 @@ Supabase’s publishable key is public by design. It only grants access allowed 
 - Service worker caches public assets only. The separately persisted catalog contains approved public locations, stalls, menus, categories and fee settings, with a saved-at timestamp. Auth sessions use Supabase SSR cookies; orders and tokens are never placed in Cache Storage. Browser-local cart persistence is scoped and cleared when switching accounts, but it contains only public food data and quantities.
 
 Before campus rollout, run the live RLS and multi-session tests in TESTING.md, configure Auth rate limits and SMTP, confirm actual email domains, and audit administrator bootstrap access. The embedded PostgreSQL test harness verifies SQL behavior without making a claim about production Supabase configuration.
+
+Supabase Advisor may report the deliberately inaccessible pickup token table as “RLS Enabled No Policy.” This is intentional: all direct access is revoked and only authorized token RPCs can use it. Security-definer RPC advisories are also expected for the authorization helpers and guarded transaction functions; these functions explicitly check identity, ownership and state. See the [Advisor documentation](https://supabase.com/docs/guides/database/database-linter) when reviewing these informational findings.

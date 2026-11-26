@@ -102,8 +102,27 @@ function SessionProvider({ children }: { children: React.ReactNode }) {
       .channel('app-updates')
       .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
         void query.invalidateQueries();
-        if (payload.table === 'notifications' && payload.eventType === 'INSERT')
+        if (payload.table === 'notifications' && payload.eventType === 'INSERT') {
           toast(String(payload.new.title));
+          if (
+            'Notification' in window &&
+            Notification.permission === 'granted' &&
+            document.hidden
+          ) {
+            void db
+              .from('profiles')
+              .select('notifications_enabled')
+              .eq('id', payload.new.user_id)
+              .single()
+              .then(({ data }) => {
+                if (data?.notifications_enabled)
+                  new Notification(String(payload.new.title), {
+                    body: String(payload.new.message),
+                    icon: '/icons/icon-192.png',
+                  });
+              });
+          }
+        }
       })
       .subscribe();
     return () => {

@@ -39,7 +39,7 @@ Open [http://localhost:3000](http://localhost:3000). Without Supabase configurat
 
    No service-role key is needed by the application. Never expose a secret key in a `NEXT_PUBLIC_` variable.
 
-2. Apply the four files in `supabase/migrations` in filename order using Supabase SQL Editor, or use the official Supabase CLI:
+2. Apply the files in `supabase/migrations` in filename order using Supabase SQL Editor, or use the official Supabase CLI:
 
    ```powershell
    npx supabase login
@@ -90,7 +90,9 @@ Open [http://localhost:3000](http://localhost:3000). Without Supabase configurat
 5. Deploy and use Vercel’s returned HTTPS URL as the shareable campus address. Students and sellers use this same deployment and database.
 6. Verify `/manifest.webmanifest`, `/sw.js`, authentication email links, Storage image uploads, cross-device Realtime changes, and rear camera scanning on the deployed URL. Camera access is unavailable on ordinary `http://LAN-IP` addresses; use HTTPS for phone testing.
 
-No hosted deployment or live Supabase connection is implied by the local preview. A Vercel account/project and configured Supabase project are required to finish publication.
+The current deployment is [cpugrab.vercel.app](https://cpugrab.vercel.app), connected to Supabase project `elyhudnmywupetxethay` and [NixbyKirbz/CPUGrab](https://github.com/NixbyKirbz/CPUGrab). Migration filenames match the recorded remote migration versions. Only public API configuration is used by the app; the database password is never committed or passed to Vercel.
+
+The project owner can configure a one-time administrator invitation in the unexposed `cpugrab_private.admin_bootstrap` table. Its trigger grants administrator access only after the invited email is verified, then consumes the invitation. No administrator email is embedded in source.
 
 ## Install on a phone
 
