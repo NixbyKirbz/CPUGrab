@@ -1,9 +1,8 @@
-import { Shell } from '@/components/shell';
 import { StallApplication } from '@/components/seller/settings';
 export default function Page() {
   return (
-    <Shell>
+    <main id="main-content" className="main-content app-layout" style={{ maxWidth: 680 }}>
       <StallApplication />
-    </Shell>
+    </main>
   );
 }

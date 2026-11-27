@@ -8,6 +8,7 @@ import { uploadImage } from '@/lib/upload';
 import { rpc } from '@/services/catalog';
 import { useSession } from '@/components/providers';
 import { PageTitle, ErrorBox, Loading, Busy, Empty } from '@/components/ui';
+import { foodHandlingStandards, StallVerification } from '@/components/stall-verification';
 import { Install } from '@/components/install';
 import { day, time } from '@/lib/format';
 import type { Location } from '@/types';
@@ -41,7 +42,6 @@ export function StallApplication() {
       <PageTitle
         title="Let’s meet your stall."
         subtitle="Tell us a little about your food. We’ll take care of the queue."
-        back="/student/profile"
       />
       <section className="panel" style={{ maxWidth: 650 }}>
         <form
@@ -53,12 +53,13 @@ export function StallApplication() {
             try {
               const f = new FormData(e.currentTarget);
               const image = await uploadImage(f.get('image') as File, user.id);
-              await rpc('register_seller', {
+              const stallId = await rpc<string>('register_seller', {
                 p_name: String(f.get('name')).trim(),
                 p_location: f.get('location'),
                 p_contact: f.get('contact'),
                 p_image: image,
               });
+              await rpc('accept_stall_standards', { p_stall: stallId });
               window.location.replace('/seller/dashboard');
             } catch (e) {
               setError(e);
@@ -93,6 +94,9 @@ export function StallApplication() {
           <label>
             Stall photo
             <input type="file" name="image" accept="image/jpeg,image/png,image/webp" required />
+          </label>
+          <label className="check-label">
+            <input type="checkbox" required /> {foodHandlingStandards}
           </label>
           <p className="help-text">
             Every stall is reviewed by an administrator. You can publish your menu and accept
@@ -162,6 +166,10 @@ export function SellerSettings() {
                     contact_number: String(f.get('contact')),
                     opening_hours: String(f.get('hours')),
                     delivery_enabled: f.has('delivery'),
+                    reservation_mode: f.get('reservation-mode'),
+                    busy_order_limit: Number(f.get('busy-order-limit')),
+                    reservation_opens_at: f.get('reservation-opens'),
+                    reservation_closes_at: f.get('reservation-closes'),
                     delivery_closes_at: f.get('delivery-closes'),
                     image_url: image,
                     cover_image_url: image,
@@ -195,6 +203,49 @@ export function SellerSettings() {
               Opening hours
               <input name="hours" defaultValue={stall.opening_hours} required maxLength={120} />
             </label>
+            <label>
+              Online reservations
+              <select name="reservation-mode" defaultValue={stall.reservation_mode ?? 'normal'}>
+                <option value="normal">Accepting reservations</option>
+                <option value="busy">Busy · limited pickup slots</option>
+                <option value="paused">Temporarily paused</option>
+              </select>
+            </label>
+            <label>
+              Maximum orders per slot in busy mode
+              <input
+                name="busy-order-limit"
+                type="number"
+                min="1"
+                max="500"
+                required
+                defaultValue={stall.busy_order_limit ?? 5}
+              />
+            </label>
+            <div className="form-grid">
+              <label>
+                Reservations open (Manila time)
+                <input
+                  name="reservation-opens"
+                  type="time"
+                  min="07:00"
+                  max="17:00"
+                  required
+                  defaultValue={stall.reservation_opens_at?.slice(0, 5) ?? '07:00'}
+                />
+              </label>
+              <label>
+                Last pickup ends
+                <input
+                  name="reservation-closes"
+                  type="time"
+                  min="07:00"
+                  max="17:00"
+                  required
+                  defaultValue={stall.reservation_closes_at?.slice(0, 5) ?? '17:00'}
+                />
+              </label>
+            </div>
             <label className="check-label">
               <input type="checkbox" name="delivery" defaultChecked={stall.delivery_enabled} />
               Offer campus delivery
@@ -245,6 +296,7 @@ export function SellerSettings() {
                       start_time: start,
                       end_time: end,
                       max_reservations: Number(f.get('capacity')),
+                      max_portions: Number(f.get('portions')),
                     });
                   if (error) throw error;
                   await query.invalidateQueries({ queryKey: ['seller-slots'] });
@@ -274,6 +326,17 @@ export function SellerSettings() {
               <label>
                 Maximum reservations
                 <input type="number" name="capacity" min="1" max="500" defaultValue="20" required />
+              </label>
+              <label>
+                Maximum food portions
+                <input
+                  name="portions"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  defaultValue="50"
+                  required
+                />
               </label>
               <button className="secondary-button" disabled={busy}>
                 Add pickup slot
@@ -310,13 +373,14 @@ export function SellerSettings() {
           <section className="panel" style={{ marginTop: 20 }}>
             <Install />
             <Link
-              href="/student/profile"
+              href="/seller/account"
               className="text-button"
               style={{ display: 'block', textAlign: 'center', marginTop: 10 }}
             >
               Account, notification preferences & sign out →
             </Link>
           </section>
+          {user?.id === stall.owner_id && <StallVerification stallId={stall.id} />}
         </aside>
       </div>
     </>

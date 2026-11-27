@@ -7,7 +7,7 @@ async function signInStudent(page: Page) {
     'Requires a test student account because browsing now requires sign-in.',
   );
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
-  await page.getByLabel('Email address', { exact: true }).fill(email!);
+  await page.getByLabel('Email address or student number', { exact: true }).fill(email!);
   await page.getByLabel('Password', { exact: true }).fill(password!);
   await page.getByRole('button', { name: 'Log In', exact: true }).click();
   await expect(page).toHaveURL(/\/student\/home$/);
@@ -106,7 +106,9 @@ test('location previews and mobile overflow stay usable', async ({ page }) => {
 });
 test('auth rejects invalid input before contacting authentication', async ({ page }) => {
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
-  await page.getByLabel('Email address', { exact: true }).fill('student@example.com');
+  await page
+    .getByLabel('Email address or student number', { exact: true })
+    .fill('student@example.com');
   await page.getByLabel('Password', { exact: true }).fill('abc');
   await page.getByRole('button', { name: 'Log In', exact: true }).click();
   await expect(page.getByText('Use at least 8 characters')).toBeVisible();

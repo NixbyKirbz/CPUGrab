@@ -11,6 +11,7 @@ import { useSession } from '@/components/providers';
 import { PageTitle, Empty, Quantity, Loading, ErrorBox, Modal, Busy } from '@/components/ui';
 import type { PaymentMethod, Slot } from '@/types';
 import { useWalletBalance, WalletCashIn, walletBalanceKey } from './wallet-cash-in';
+import { useRewards } from './rewards';
 
 const paymentMethods = ['wallet', 'gcash'] satisfies PaymentMethod[];
 
@@ -28,9 +29,11 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
   const [confirm, setConfirm] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [cashIn, setCashIn] = useState(false);
+  const [rewardId, setRewardId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const key = useRef<string | null>(null);
+  const simulationKey = useRef<string | null>(null);
   useEffect(() => {
     const timer = setTimeout(() => setHydrated(true), 0);
     return () => clearTimeout(timer);
@@ -42,6 +45,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
   } = useQuery({ queryKey: ['catalog'], queryFn: fetchCatalog });
   const stallId = lines[0]?.stall_id;
   const walletBalance = useWalletBalance(checkout && role === 'student' ? user?.id : undefined);
+  const rewards = useRewards(checkout && role === 'student' ? user?.id : undefined);
   const participating = data?.stalls.some(
     (stall) => stall.id === stallId && stall.delivery_enabled,
   );
@@ -66,7 +70,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
     queryKey: ['slots', stallId, user?.id],
     enabled: Boolean(user && checkout && stallId),
     refetchInterval: 30_000,
-    queryFn: () => rpc<Slot[]>('available_pickup_slots', { p_stall: stallId }),
+    queryFn: () => rpc<Slot[]>('pickup_schedule', { p_stall: stallId }),
   });
   if (!hydrated || isPending) return <Loading />;
   if (catalogError || !data) return <ErrorBox error={catalogError} />;
@@ -91,14 +95,22 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
     data.settings.reservation_fee_centavos,
     data.settings.default_markup_centavos,
   );
-  const selected = slots.find((s) => s.id === slot);
+  const portions = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const canUseSlot = (period: Slot) =>
+    (period.availability === 'available' || period.availability === 'limited') &&
+    (period.portions_left ?? 0) >= portions;
+  const selected = slots.find((s) => s.id === slot && canUseSlot(s));
   const individualFee = data.settings.delivery_fee_centavos ?? 0;
   const groupFee = data.settings.group_delivery_fee_centavos ?? 0;
   const deliveryFee = groupDelivery ? groupFee : individualFee;
   const hasDelivery = Boolean(
     deliveryOptions.data?.individual.length || deliveryOptions.data?.group.length,
   );
-  const total = totals.total + (dropoff ? deliveryFee : 0);
+  const fullPrice = totals.total + (dropoff ? deliveryFee : 0);
+  const availableRewards =
+    rewards.data?.available.filter((reward) => reward.amount_centavos < fullPrice) ?? [];
+  const appliedReward = availableRewards.find((reward) => reward.id === rewardId);
+  const total = fullPrice - (appliedReward?.amount_centavos ?? 0);
   const validFulfillment =
     !dropoff ||
     Boolean(
@@ -114,8 +126,15 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
   const invalid =
     lines.some((l) => {
       const current = data.items.find((i) => i.id === l.id);
-      return !current || !current.is_available || current.price_centavos !== l.price_centavos;
-    }) || !stall?.is_open;
+      return (
+        !current ||
+        !current.is_available ||
+        current.price_centavos !== l.price_centavos ||
+        (current.stock_quantity !== null && current.stock_quantity < l.quantity)
+      );
+    }) ||
+    !stall?.is_open ||
+    stall.reservation_mode === 'paused';
   const reserve = async () => {
     if (!user || !selected || !canPay || !paymentMethod || invalid || !validFulfillment) return;
     setBusy(true);
@@ -123,7 +142,12 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
     try {
       if (!navigator.onLine) throw new Error('Reconnect to confirm your reservation.');
       key.current ??= crypto.randomUUID();
-      const id = await rpc<string>(dropoff ? 'create_delivery_reservation' : 'create_reservation', {
+      const endpoint = appliedReward
+        ? 'create_reward_reservation'
+        : dropoff
+          ? 'create_delivery_reservation'
+          : 'create_reservation';
+      const id = await rpc<string>(endpoint, {
         p_stall: stallId,
         p_slot: slot,
         p_items: lines.map((l) => ({ id: l.id, quantity: l.quantity })),
@@ -131,9 +155,11 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
         p_notes: notes,
         p_payment_method: paymentMethod,
         p_total_centavos: total,
-        ...(dropoff ? { p_dropoff: dropoff, p_group: groupDelivery } : {}),
+        ...(dropoff || appliedReward ? { p_dropoff: dropoff || null, p_group: groupDelivery } : {}),
+        ...(appliedReward ? { p_reward: appliedReward.id } : {}),
       });
       void query.invalidateQueries({ queryKey: walletBalanceKey });
+      void query.invalidateQueries({ queryKey: ['rewards'] });
       void query.invalidateQueries({ queryKey: ['orders'] });
       useCart.getState().clear();
       router.push(`/student/order/${id}?confirmed=1`);
@@ -144,6 +170,30 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
       void query.invalidateQueries({ queryKey: ['delivery-options'] });
       void query.invalidateQueries({ queryKey: ['catalog'] });
       void query.invalidateQueries({ queryKey: walletBalanceKey });
+      void query.invalidateQueries({ queryKey: ['rewards'] });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const simulateUnpaid = async (status: 'failed' | 'cancelled') => {
+    setBusy(true);
+    try {
+      simulationKey.current ??= crypto.randomUUID();
+      const reference = await rpc<string>('record_gcash_attempt', {
+        p_key: simulationKey.current,
+        p_amount: total,
+        p_status: status,
+      });
+      simulationKey.current = null;
+      setConfirm(false);
+      setError(
+        new Error(
+          `Simulated GCash payment ${status}. Your cart is ready to retry. Reference ${reference}.`,
+        ),
+      );
+    } catch (error) {
+      setError(error);
+      setConfirm(false);
     } finally {
       setBusy(false);
     }
@@ -155,7 +205,13 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
         back={checkout ? '/student/cart' : `/student/stall/${stallId}`}
       />
       {Boolean(error) && <ErrorBox error={error} />}{' '}
-      {invalid && (
+      {stall?.reservation_mode === 'paused' && (
+        <p className="notice">Online reservations are temporarily paused at this stall.</p>
+      )}
+      {stall?.reservation_mode === 'busy' && (
+        <p className="notice">This stall has limited pickup slots while busy.</p>
+      )}
+      {invalid && stall?.reservation_mode !== 'paused' && (
         <div className="notice">
           The menu has changed, or the stall is closed.{' '}
           <Link
@@ -229,6 +285,31 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
               <strong>{money(deliveryFee)}</strong>
             </div>
           )}
+          {availableRewards.length > 0 && (
+            <label>
+              CPUGrab reward
+              <select
+                value={appliedReward?.id ?? ''}
+                onChange={(event) => {
+                  setRewardId(event.target.value);
+                  key.current = null;
+                }}
+              >
+                <option value="">Pay without a reward</option>
+                {availableRewards.map((reward) => (
+                  <option key={reward.id} value={reward.id}>
+                    Apply {money(reward.amount_centavos)} discount
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {appliedReward && (
+            <div className="detail-row">
+              <span>Promotional discount</span>
+              <strong>−{money(appliedReward.amount_centavos)}</strong>
+            </div>
+          )}
           <div className="detail-row total-row">
             <span>Total</span>
             <strong>{money(total)}</strong>
@@ -262,8 +343,15 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
                         {slotsPending ? 'Loading pickup times…' : 'Choose a pickup time'}
                       </option>
                       {slots.map((s) => (
-                        <option value={s.id} key={s.id}>
-                          {time(s.start_time)} – {time(s.end_time)} · {s.remaining} left
+                        <option value={s.id} key={s.id} disabled={!canUseSlot(s)}>
+                          {time(s.start_time)} – {time(s.end_time)} ·{' '}
+                          {s.availability === 'unavailable'
+                            ? 'Unavailable'
+                            : s.availability === 'full'
+                              ? 'Fully booked'
+                              : !canUseSlot(s)
+                                ? 'Too few portions'
+                                : `${s.remaining} orders · ${s.portions_left} portions left`}
                         </option>
                       ))}
                     </select>
@@ -398,14 +486,16 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
       {cashIn && <WalletCashIn onClose={() => setCashIn(false)} />}
       {confirm && paymentMethod && (
         <Modal
-          title="Confirm Payment"
+          title={
+            paymentMethod === 'gcash' ? 'GCash Payment · Simulation' : 'Confirm Wallet Payment'
+          }
           onClose={() => {
             if (!busy) setConfirm(false);
           }}
         >
           <div className="confirm-intro">
             <CalendarCheck size={24} />
-            <p>Review your reservation before confirming the simulated payment.</p>
+            <p>Review your reservation before confirming the simulated payment to CPUGrab.</p>
           </div>
           <div className="detail-row">
             <span>Stall</span>
@@ -444,10 +534,21 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
           >
             <Busy busy={busy}>Pay {money(total)}</Busy>
           </button>
+          {paymentMethod === 'gcash' && (
+            <button
+              className="text-button full-width"
+              disabled={busy}
+              onClick={() => void simulateUnpaid('failed')}
+            >
+              Test a failed payment
+            </button>
+          )}
           <button
             className="secondary-button full-width"
             disabled={busy}
-            onClick={() => setConfirm(false)}
+            onClick={() =>
+              paymentMethod === 'gcash' ? void simulateUnpaid('cancelled') : setConfirm(false)
+            }
           >
             Cancel
           </button>

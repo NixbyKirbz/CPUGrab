@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { configured, getSupabase } from '@/lib/supabase/client';
 import { useCart } from '@/stores/cart';
+import { portalForPath } from '@/lib/auth-portal';
 import type { User } from '@supabase/supabase-js';
 import type { Role } from '@/types';
 type Session = {
@@ -69,10 +70,14 @@ function SessionProvider({ children }: { children: React.ReactNode }) {
       const timer = setTimeout(() => setSession((s) => ({ ...s, loading: false })), 0);
       return () => clearTimeout(timer);
     }
-    const db = getSupabase();
+    const portal = portalForPath(
+      window.location.pathname,
+      new URLSearchParams(window.location.search).get('role'),
+    );
+    const db = getSupabase(portal);
     let active = true;
     const refresh = async (user: User | null) => {
-      useCart.getState().scope(user?.id || 'guest');
+      if (portal === 'student' && user) useCart.getState().scope(user.id);
       if (!user) {
         if (active) setSession({ user: null, role: 'student', name: 'Centralian', loading: false });
         return;

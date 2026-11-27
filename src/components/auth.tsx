@@ -6,10 +6,11 @@ import { z } from 'zod';
 import Link from 'next/link';
 import { Eye, EyeOff, ArrowLeft, Mail, LockKeyhole } from 'lucide-react';
 import { configured, getSupabase } from '@/lib/supabase/client';
+import { identifierPattern } from '@/lib/auth-portal';
 import { Busy, ErrorBox } from './ui';
 const schema = z.object({
-  email: z.email('Enter a valid email address'),
-  password: z.string().min(8, 'Use at least 8 characters'),
+  email: z.string().trim(),
+  password: z.string().min(8, 'Use at least 8 characters').max(128),
   full_name: z.string().optional(),
   student_id: z.string().optional(),
   confirm: z.string().optional(),
@@ -27,6 +28,11 @@ export function Auth({
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const acceptsStudentNumber = mode === 'login' && !seller;
+  const identifierLabel = acceptsStudentNumber
+    ? 'Email address or student number'
+    : 'Email address';
+  const roleQuery = seller ? '?role=seller' : '';
   useEffect(() => {
     const timer = setTimeout(() => setReady(true), 0);
     return () => clearTimeout(timer);
@@ -36,7 +42,20 @@ export function Auth({
     handleSubmit,
     formState: { errors },
   } = useForm<Fields>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(
+      schema.refine(
+        ({ email }) =>
+          mode === 'reset' ||
+          z.email().safeParse(email).success ||
+          (acceptsStudentNumber && identifierPattern.test(email)),
+        {
+          path: ['email'],
+          message: acceptsStudentNumber
+            ? 'Enter your email address or student number.'
+            : 'Enter a valid email address.',
+        },
+      ),
+    ),
     defaultValues: { email: '', password: '' },
   });
   const submit = async (values: Fields) => {
@@ -48,7 +67,6 @@ export function Auth({
         throw new Error(
           'Supabase is not configured yet. Copy .env.example to .env.local and add your project URL and publishable key.',
         );
-      const db = getSupabase();
       if (mode === 'register') {
         if (!values.full_name?.trim() || (!seller && !values.student_id?.trim()))
           throw new Error('Complete your full name and student ID.');
@@ -69,20 +87,26 @@ export function Auth({
             (seller ? ' and complete your stall application.' : '.'),
         );
       } else if (mode === 'login') {
-        const { error } = await db.auth.signInWithPassword({
-          email: values.email,
-          password: values.password,
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identifier: values.email,
+            password: values.password,
+            portal: seller ? 'seller' : 'student',
+          }),
         });
-        if (error) throw error;
-        window.location.replace(seller ? '/?role=seller' : '/');
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error);
+        window.location.replace(body.next);
       } else if (mode === 'forgot') {
-        const { error } = await db.auth.resetPasswordForEmail(values.email, {
-          redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+        const { error } = await getSupabase().auth.resetPasswordForEmail(values.email, {
+          redirectTo: `${window.location.origin}/auth/callback?next=/reset-password${seller ? '&role=seller' : ''}`,
         });
         if (error) throw error;
         setNotice('If an account exists, a password reset link is on its way.');
       } else {
-        const { error } = await db.auth.updateUser({ password: values.password });
+        const { error } = await getSupabase().auth.updateUser({ password: values.password });
         if (error) throw error;
         setNotice('Password updated. You can now sign in.');
       }
@@ -168,13 +192,16 @@ export function Auth({
               )}
               {mode !== 'reset' && (
                 <label>
-                  <span className={mode === 'login' ? 'sr-only' : undefined}>Email address</span>
+                  <span className={mode === 'login' ? 'sr-only' : undefined}>
+                    {identifierLabel}
+                  </span>
                   <div className="auth-field">
                     {mode === 'login' && <Mail size={19} aria-hidden="true" />}
                     <input
-                      type="email"
-                      autoComplete="email"
-                      placeholder={mode === 'login' ? 'Email address' : undefined}
+                      type={acceptsStudentNumber ? 'text' : 'email'}
+                      autoComplete={mode === 'login' ? 'username' : 'email'}
+                      placeholder={mode === 'login' ? identifierLabel : undefined}
+                      autoCapitalize="none"
                       {...register('email')}
                     />
                   </div>
@@ -225,7 +252,7 @@ export function Auth({
               )}
               {mode === 'login' && (
                 <div className="auth-links">
-                  <Link href="/forgot-password">Forgot password?</Link>
+                  <Link href={`/forgot-password${roleQuery}`}>Forgot password?</Link>
                 </div>
               )}
               <button className="primary-button full-width" disabled={!ready || busy}>
@@ -241,8 +268,8 @@ export function Auth({
               </button>
               {seller && mode === 'register' && (
                 <p className="help-text">
-                  Next, add your stall name, location, contact number, and photo. An administrator
-                  reviews every application.
+                  Use an email address for your stall account. After signup, submit your stall
+                  details for administrator review.
                 </p>
               )}
             </form>
@@ -266,13 +293,13 @@ export function Auth({
           </div>
           {mode === 'login' && !seller && (
             <div className="auth-bottom">
-              <Link href="/login?role=seller">Stall Portal</Link>
+              <a href="/login?role=seller">Stall Portal</a>
             </div>
           )}
           {seller && (
-            <Link className="auth-home" href="/login">
+            <a className="auth-home" href="/login">
               <ArrowLeft size={14} /> Student login
-            </Link>
+            </a>
           )}
         </div>
       </main>

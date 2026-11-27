@@ -5,9 +5,17 @@ import { Check, ScanLine, Camera, CameraOff } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { rpc } from '@/services/catalog';
 import { deliveryAction, deliveryCode } from '@/services/delivery';
-import { PageTitle, ErrorBox, Busy } from '@/components/ui';
+import { PageTitle, ErrorBox, Busy, Modal } from '@/components/ui';
+import { getSupabase } from '@/lib/supabase/client';
+import { useStall } from './context';
+import { time } from '@/lib/format';
+import type { OrderItem } from '@/types';
+
+type Pickup = { id: string; order_number: string; payment_status: string; error?: string };
+type PickupMatch = Pickup & { start_time: string };
 export function Scanner() {
   const query = useQueryClient();
+  const { data: stall } = useStall();
   const video = useRef<HTMLVideoElement>(null);
   const controls = useRef<IScannerControls | null>(null);
   const mounted = useRef(true);
@@ -20,6 +28,12 @@ export function Scanner() {
   const [token, setToken] = useState('');
   const [completed, setCompleted] = useState<{ orderNumber?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<{
+    pickup: Pickup;
+    items: OrderItem[];
+    credential: string;
+  } | null>(null);
+  const [matches, setMatches] = useState<PickupMatch[] | null>(null);
   const stop = useCallback(() => {
     cameraRequested.current = false;
     controls.current?.stop();
@@ -35,6 +49,23 @@ export function Scanner() {
       void sound.current?.close();
     };
   }, []);
+  const identify = async (raw: string, confirm: boolean) => {
+    const clean = raw.replace(/^cpugrab:pickup:/, '').replace(/\s+/g, '');
+    if (/^\d{6}$/.test(clean) && stall) {
+      const pickup = await rpc<Pickup>('verify_pickup_pin', {
+        p_stall: stall.id,
+        p_pin: clean,
+        p_confirm: confirm,
+      });
+      if (pickup.error) throw new Error(pickup.error);
+      return pickup;
+    }
+    if (!/^[a-f0-9]{64}$/i.test(clean))
+      throw new Error('Scan the QR or enter the six-digit pickup PIN.');
+    return rpc<Pickup>(confirm ? 'redeem_pickup_token' : 'inspect_pickup_token', {
+      p_token: clean,
+    });
+  };
   const finish = async (raw: string) => {
     let orderNumber: string | undefined;
     if (raw.startsWith('cpugrab:delivery-')) {
@@ -42,13 +73,12 @@ export function Scanner() {
       if (!decoded.orderId) throw new Error('Open the delivery in Orders to verify a PIN.');
       await deliveryAction(decoded.orderId, 'collect', decoded.code);
     } else {
-      const clean = raw.replace(/^cpugrab:pickup:/, '');
-      if (!/^[a-f0-9]{64}$/i.test(clean)) throw new Error('That is not a CPUGrab pickup code.');
-      const order = await rpc<{ order_number: string }>('redeem_pickup_token', { p_token: clean });
+      const order = await identify(raw, true);
       orderNumber = order.order_number;
     }
     if (!mounted.current) return;
     setCompleted({ orderNumber });
+    setPreview(null);
     stop();
     navigator.vibrate?.([80, 50, 80]);
     if (sound.current?.state === 'running') {
@@ -64,14 +94,25 @@ export function Scanner() {
     }
     await query.invalidateQueries({ queryKey: ['orders'] });
   };
-  const verify = async (raw: string) => {
+  const verify = async (raw: string, confirm = false) => {
     if (locking.current) return;
     locking.current = true;
     setBusy(true);
     setError(null);
     try {
       stop();
-      await finish(raw.trim());
+      const credential = raw.trim();
+      if (confirm || credential.startsWith('cpugrab:delivery-')) {
+        await finish(credential);
+      } else {
+        const pickup = await identify(credential, false);
+        const { data, error } = await getSupabase()
+          .from('order_items')
+          .select('*')
+          .eq('order_id', pickup.id);
+        if (error) throw new Error(error.message);
+        setPreview({ pickup, items: data as OrderItem[], credential });
+      }
     } catch (e) {
       if (mounted.current) setError(e);
     } finally {
@@ -145,8 +186,8 @@ export function Scanner() {
   return (
     <>
       <PageTitle
-        title="Scan Pickup QR"
-        subtitle="Scan a student or delivery worker’s pickup QR code."
+        title="Express Pickup"
+        subtitle="Scan a pickup QR code or enter a student’s six-digit PIN."
         back="/seller/orders"
       />
       <section className="scanner-panel">
@@ -173,7 +214,7 @@ export function Scanner() {
             disabled={busy}
           >
             <Camera size={18} />
-            Open rear camera
+            Scan QR code
           </button>
         )}
         {cameraError && <div className="notice">{cameraError}</div>}
@@ -186,13 +227,13 @@ export function Scanner() {
             void verify(token);
           }}
         >
-          <h2 style={{ marginBottom: 0 }}>Enter a pickup code</h2>
+          <h2 style={{ marginBottom: 0 }}>Enter pickup PIN</h2>
           <label>
-            Secure pickup code
+            Pickup PIN or QR text
             <textarea
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              placeholder="Enter the private code below the student’s QR"
+              placeholder="Six-digit pickup PIN"
               required
               maxLength={160}
               autoComplete="off"
@@ -206,7 +247,82 @@ export function Scanner() {
             Use the student’s private code to complete a paid reservation.
           </p>
         </form>
+        {stall && (
+          <form
+            className="panel form-stack"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const number = String(new FormData(event.currentTarget).get('student'));
+              setBusy(true);
+              setMatches(null);
+              setError(null);
+              try {
+                setMatches(
+                  await rpc<PickupMatch[]>('find_pickups_by_student', {
+                    p_stall: stall.id,
+                    p_student_number: number,
+                  }),
+                );
+              } catch (error) {
+                setError(error);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <label>
+              Find by student number
+              <input name="student" minLength={3} maxLength={40} required />
+            </label>
+            <button className="secondary-button" disabled={busy}>
+              Find reservations
+            </button>
+            {matches &&
+              (matches.length ? (
+                <ul>
+                  {matches.map((item) => (
+                    <li key={item.id}>
+                      #{item.order_number} · {time(item.start_time)} · Paid
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No active pickup reservations found.</p>
+              ))}
+            <p className="help-text">A matching reservation still requires the pickup QR or PIN.</p>
+          </form>
+        )}
       </section>
+      {preview && (
+        <Modal
+          title={`Confirm handover for #${preview.pickup.order_number}`}
+          onClose={() => {
+            if (!busy) setPreview(null);
+          }}
+        >
+          <div className="form-stack">
+            <p>
+              Payment status:{' '}
+              {preview.pickup.payment_status === 'paid' ? 'Paid' : 'Payment required'}
+            </p>
+            <ul>
+              {preview.items.map((item, index) => (
+                <li key={index}>
+                  {item.item_name_snapshot} × {item.quantity}
+                </li>
+              ))}
+            </ul>
+            {Boolean(error) && <ErrorBox error={error} />}
+            <button
+              className="primary-button"
+              disabled={busy}
+              onClick={() => void verify(preview.credential, true)}
+            >
+              <Busy busy={busy}>Confirm food handover</Busy>
+            </button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

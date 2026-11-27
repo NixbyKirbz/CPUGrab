@@ -6,6 +6,7 @@ import type { Stall } from '@/types';
 import Link from 'next/link';
 import { Shell } from '@/components/shell';
 import { Empty, ErrorBox, Loading } from '@/components/ui';
+import { StallVerification } from '@/components/stall-verification';
 export function useStall() {
   const { user } = useSession();
   return useQuery({
@@ -42,7 +43,7 @@ export function useStall() {
 }
 
 export function SellerAccess({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useSession();
+  const { user, loading, toast } = useSession();
   const stall = useStall();
   if (user && stall.data?.approval_status === 'approved') {
     return <Shell role="seller">{children}</Shell>;
@@ -63,11 +64,10 @@ export function SellerAccess({ children }: { children: React.ReactNode }) {
           </Link>
         </Empty>
       ) : !stall.data ? (
-        <Empty title="Set up your stall" text="Submit your stall details for administrator review.">
-          <Link className="primary-button" href="/register/stall">
-            Apply for a stall
-          </Link>
-        </Empty>
+        <Empty
+          title="Stall unavailable"
+          text="Contact an administrator to restore access to your stall."
+        />
       ) : (
         <Empty
           title={
@@ -81,10 +81,23 @@ export function SellerAccess({ children }: { children: React.ReactNode }) {
               : 'Contact an administrator for help with your stall.'
           }
         >
-          <Link className="secondary-button" href="/student/profile">
-            Your account
-          </Link>
+          <button
+            className="secondary-button"
+            onClick={async () => {
+              const { error } = await getSupabase('seller').auth.signOut({ scope: 'local' });
+              if (error) toast(error.message);
+              else window.location.replace('/login?role=seller');
+            }}
+          >
+            Sign out of Stall Portal
+          </button>
+          <a className="text-button" href="/login">
+            Open Student Portal
+          </a>
         </Empty>
+      )}
+      {user && stall.data?.owner_id === user.id && stall.data.approval_status === 'pending' && (
+        <StallVerification stallId={stall.data.id} />
       )}
     </main>
   );

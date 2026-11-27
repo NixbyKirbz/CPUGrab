@@ -66,7 +66,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
         ? [
             { label: 'Home', href: '/seller/dashboard', icon: Home },
             { label: 'Orders', href: '/seller/orders', icon: CalendarDays },
-            { label: 'QR Scan', href: '/seller/scanner', icon: ScanLine },
+            { label: 'Pickup', href: '/seller/scanner', icon: ScanLine },
             { label: 'Menu', href: '/seller/menu', icon: Utensils },
             { label: 'Settings', href: '/seller/settings', icon: Settings },
           ]
@@ -76,6 +76,8 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
             { label: 'Locations', href: '/admin/locations', icon: MapPin },
             { label: 'Deliveries', href: '/admin/delivery', icon: Bike },
             { label: 'Accounts', href: '/admin/accounts', icon: UserRound },
+            { label: 'Reports', href: '/admin/reports', icon: CalendarDays },
+            { label: 'Rewards', href: '/admin/rewards', icon: Wallet },
             { label: 'Settings', href: '/admin/settings', icon: Settings },
           ];
   return (
@@ -147,7 +149,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
             )}
             <Link
               className={role === 'student' ? 'avatar student-header-profile' : 'avatar'}
-              href={user ? '/student/profile' : '/login'}
+              href={user ? (role === 'seller' ? '/seller/account' : '/student/profile') : '/login'}
               aria-label={user ? 'Your profile' : 'Sign in'}
             >
               {user ? name.charAt(0) : <UserRound size={20} />}
@@ -242,7 +244,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
             key={href}
             href={href}
             aria-current={path === href ? 'page' : undefined}
-            className={`${path === href ? 'active' : ''} ${label === 'QR Scan' ? 'scan-nav' : ''}`}
+            className={`${path === href ? 'active' : ''} ${href === '/seller/scanner' ? 'scan-nav' : ''}`}
           >
             <Icon size={22} />
             <span>{label === 'My orders' ? 'Orders' : label}</span>
@@ -257,7 +259,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
               {notices.map((n) => (
                 <Link
                   key={n.id}
-                  href={`/student/order/${n.order_id}`}
+                  href={role === 'seller' ? '/seller/orders' : `/student/order/${n.order_id}`}
                   onClick={async () => {
                     setNotifications(false);
                     await getSupabase()

@@ -110,7 +110,11 @@ export function SellerMenu() {
                 style={edit ? undefined : { display: 'none' }}
                 aria-label={`Edit ${item.name}`}
               >
-                <img src={item.image_url} alt={item.name} />
+                <img
+                  src={item.image_url}
+                  alt={item.name}
+                  style={{ filter: item.stock_quantity === 0 ? 'grayscale(1)' : undefined }}
+                />
                 <span className="pencil">
                   <Pencil size={23} />
                 </span>
@@ -127,8 +131,9 @@ export function SellerMenu() {
                     src={item.image_url}
                     alt={item.name}
                     style={{
-                      filter: item.is_available ? 'none' : 'grayscale(1)',
-                      opacity: item.is_available ? 1 : 0.65,
+                      filter:
+                        item.is_available && item.stock_quantity !== 0 ? 'none' : 'grayscale(1)',
+                      opacity: item.is_available && item.stock_quantity !== 0 ? 1 : 0.65,
                     }}
                   />
                 </button>
@@ -136,9 +141,19 @@ export function SellerMenu() {
               <div>
                 <h3>{item.name}</h3>
                 <strong>{money(item.price_centavos)}</strong>
-                <span className={`availability-label ${item.is_available ? '' : 'off'}`}>
-                  {item.is_available ? <CheckCircle2 size={11} /> : <XCircle size={11} />}{' '}
-                  {item.is_available ? 'Available' : 'Unavailable'}
+                <span
+                  className={`availability-label ${item.is_available && item.stock_quantity !== 0 ? '' : 'off'}`}
+                >
+                  {item.is_available && item.stock_quantity !== 0 ? (
+                    <CheckCircle2 size={11} />
+                  ) : (
+                    <XCircle size={11} />
+                  )}{' '}
+                  {item.stock_quantity === 0
+                    ? 'Sold out for reservations'
+                    : item.is_available
+                      ? 'Available'
+                      : 'Unavailable'}
                 </span>
               </div>
             </article>

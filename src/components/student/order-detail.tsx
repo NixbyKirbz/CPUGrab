@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Check, QrCode, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { getSupabase } from '@/lib/supabase/client';
 import { fetchCatalog, rpc } from '@/services/catalog';
@@ -16,19 +16,17 @@ import {
   paymentStatusLabel,
 } from '@/lib/format';
 import { useSession } from '@/components/providers';
-import { PageTitle, Loading, ErrorBox, Empty, Busy } from '@/components/ui';
+import { PageTitle, Loading, ErrorBox, Empty } from '@/components/ui';
 import { CancelDialog } from '@/components/orders';
 import { orderSelect } from '@/services/orders';
 import { CustomerDelivery } from '@/components/delivery/customer';
+import { OrderSupport } from '@/components/order-support';
 import type { Order } from '@/types';
 export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boolean }) {
   const { user } = useSession();
   const params = useSearchParams();
   const [cancel, setCancel] = useState(false);
   const query = useQueryClient();
-  const [token, setToken] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [tokenError, setTokenError] = useState<unknown>(null);
   const {
     data: o,
     isPending,
@@ -62,17 +60,6 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
   const confirmed = params.get('confirmed') === '1';
   const canPickUp = active && o.payment_status === 'paid' && !o.delivery;
   const showConfirmation = !pickup && confirmed && canPickUp;
-  const generate = async () => {
-    setBusy(true);
-    setTokenError(null);
-    try {
-      setToken(await rpc<string>('issue_pickup_token', { p_order: id }));
-    } catch (e) {
-      setTokenError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
   const details = (
     <>
       <div className="detail-row">
@@ -103,6 +90,18 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
             : `${paymentMethodLabel[o.payment_method]} · ${paymentStatusLabel[o.payment_status]}`}
         </strong>
       </div>
+      {o.payment_reference && (
+        <div className="detail-row">
+          <span>Payment reference</span>
+          <small>{o.payment_reference}</small>
+        </div>
+      )}
+      {o.refund_reference && (
+        <div className="detail-row">
+          <span>Refund reference</span>
+          <small>{o.refund_reference}</small>
+        </div>
+      )}
     </>
   );
   if (pickup && o.delivery)
@@ -118,56 +117,13 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
       <PageTitle title="Your pickup code" back={`/student/order/${id}`} />
       <section className="panel qr-panel">
         <h2>Good food. One quick scan.</h2>
-        <p>Show this QR code at the stall to claim your order. Keep it private.</p>
+        <p>Show your QR or give your six-digit pickup PIN at the stall.</p>
         {!canPickUp ? (
           <span className={`status ${o.status}`}>
             {active ? paymentStatusLabel.unpaid : statusLabel(o.status)}
           </span>
         ) : (
-          <>
-            {token ? (
-              <>
-                <div className="qr-code">
-                  <QRCodeSVG
-                    value={`cpugrab:pickup:${token}`}
-                    size={250}
-                    level="M"
-                    marginSize={2}
-                  />
-                </div>
-                <p className="help-text">
-                  Camera unavailable? Let the seller enter this secure code:
-                </p>
-                <div className="qr-token">{token}</div>
-              </>
-            ) : (
-              <div className="empty-state" style={{ padding: '30px 20px' }}>
-                <QrCode size={55} />
-                <p>
-                  Generate a private pickup code when you’re ready. Generating a new code replaces
-                  any earlier one.
-                </p>
-              </div>
-            )}
-            {Boolean(tokenError) && <ErrorBox error={tokenError} />}
-            <button
-              className="primary-button full-width"
-              style={{ margin: '20px 0' }}
-              disabled={busy}
-              onClick={() => void generate()}
-            >
-              <Busy busy={busy}>
-                {token ? (
-                  <>
-                    <RefreshCw size={16} />
-                    Refresh code
-                  </>
-                ) : (
-                  'Generate pickup QR'
-                )}
-              </Busy>
-            </button>
-          </>
+          <ConfirmationCode id={id} userId={user.id} />
         )}
         {details}
       </section>
@@ -191,7 +147,7 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
       <h1>{showConfirmation ? 'Your Meal is Reserved!' : `Order #${o.order_number}`}</h1>
       <p>
         {showConfirmation
-          ? 'Show this QR code at the stall to claim your order.'
+          ? 'Show your QR or give your six-digit pickup PIN at the stall.'
           : statusLabel(o.status)}
       </p>
       {o.delivery && (
@@ -219,6 +175,12 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
           <div className="detail-row">
             <span>Campus delivery fee</span>
             <strong>{money(o.delivery_fee_centavos)}</strong>
+          </div>
+        )}
+        {o.reward_discount_centavos > 0 && (
+          <div className="detail-row">
+            <span>Promotional discount</span>
+            <strong>−{money(o.reward_discount_centavos)}</strong>
           </div>
         )}
         <div className="detail-row total-row">
@@ -260,6 +222,7 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
           Cancel reservation
         </button>
       )}
+      <OrderSupport orderId={o.id} order={o} />
       {cancel && (
         <CancelDialog
           order={o}
@@ -276,7 +239,7 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
 function ConfirmationCode({ id, userId }: { id: string; userId: string }) {
   const { data, error, isFetching, refetch } = useQuery({
     queryKey: ['confirmation-pickup-code', userId, id],
-    queryFn: () => rpc<string>('issue_pickup_token', { p_order: id }),
+    queryFn: () => rpc<{ token: string; pin: string }>('issue_pickup_credentials', { p_order: id }),
     staleTime: 'static',
     gcTime: 0,
     retry: false,
@@ -287,15 +250,15 @@ function ConfirmationCode({ id, userId }: { id: string; userId: string }) {
         <>
           <QRCodeSVG
             title="Pickup QR code"
-            value={`cpugrab:pickup:${data}`}
+            value={`cpugrab:pickup:${data.token}`}
             size={192}
             level="M"
             marginSize={4}
           />
-          <details>
-            <summary>Manual pickup code</summary>
-            <div className="qr-token">{data}</div>
-          </details>
+          <p className="eyebrow">Pickup PIN</p>
+          <div className="qr-token">
+            {data.pin.slice(0, 3)} {data.pin.slice(3)}
+          </div>
         </>
       ) : error ? (
         <ErrorBox error="Could not load your pickup code." retry={() => void refetch()} />

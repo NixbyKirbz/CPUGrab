@@ -1,4 +1,5 @@
 'use client';
+import { StallVerification } from '@/components/stall-verification';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import Link from 'next/link';
@@ -161,6 +162,7 @@ export function Admin({
                     <Check size={16} />
                     Approve stall
                   </button>
+                  {s.owner_id && <StallVerification stallId={s.id} reviewer />}
                 </div>
               ))}
             </div>
@@ -232,6 +234,7 @@ export function Admin({
                         </button>
                       )}
                     </div>
+                    {s.owner_id && <StallVerification stallId={s.id} reviewer />}
                   </td>
                 </tr>
               ))}

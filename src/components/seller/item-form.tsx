@@ -14,6 +14,8 @@ const schema = z.object({
   price_centavos: z.number().int().min(0).max(10000000),
   category_id: z.uuid(),
   is_available: z.boolean(),
+  stock_quantity: z.number().int().min(0).max(100000).nullable(),
+  preparation_minutes: z.number().int().min(1).max(120),
 });
 export function ItemForm({ id }: { id?: string }) {
   const { user } = useSession();
@@ -60,6 +62,8 @@ export function ItemForm({ id }: { id?: string }) {
         price_centavos: Math.round(Number(f.get('price')) * 100),
         category_id: f.get('category'),
         is_available: f.get('available') === 'on',
+        stock_quantity: f.get('stock') === '' ? null : Number(f.get('stock')),
+        preparation_minutes: Number(f.get('prep')),
       });
       const file = f.get('image') as File;
       const image = file?.size ? await uploadImage(file, user.id) : item?.image_url;
@@ -128,6 +132,30 @@ export function ItemForm({ id }: { id?: string }) {
             Description
             <textarea name="description" maxLength={1000} defaultValue={item?.description} />
           </label>
+          <div className="form-grid">
+            <label>
+              Remaining portions for reservations
+              <input
+                name="stock"
+                type="number"
+                min="0"
+                max="100000"
+                placeholder="Untracked"
+                defaultValue={item?.stock_quantity ?? ''}
+              />
+            </label>
+            <label>
+              Preparation time (minutes)
+              <input
+                name="prep"
+                type="number"
+                min="1"
+                max="120"
+                required
+                defaultValue={item?.preparation_minutes ?? 10}
+              />
+            </label>
+          </div>
           <div className="form-grid">
             <label>
               Price (₱)

@@ -20,6 +20,10 @@ export type Stall = {
   contact_number: string;
   opening_hours: string;
   is_open: boolean;
+  reservation_mode?: 'normal' | 'busy' | 'paused';
+  busy_order_limit?: number;
+  reservation_opens_at?: string;
+  reservation_closes_at?: string;
   delivery_enabled?: boolean;
   delivery_closes_at?: string;
   is_demo?: boolean;
@@ -37,6 +41,7 @@ export type MenuItem = {
   is_available: boolean;
   is_archived: boolean;
   stock_quantity: number | null;
+  preparation_minutes?: number;
 };
 export type Pricing = {
   id: number;
@@ -102,6 +107,7 @@ export type Delivery = {
   issue_note: string | null;
 };
 export type OrderItem = {
+  menu_item_id: string;
   item_name_snapshot: string;
   quantity: number;
   unit_price_centavos: number;
@@ -116,6 +122,9 @@ export type Order = {
   status: OrderStatus;
   payment_method: PaymentMethod | 'cash';
   payment_status: 'unpaid' | 'paid' | 'refunded';
+  payment_reference: string | null;
+  refund_reference: string | null;
+  reward_discount_centavos: number;
   subtotal_centavos: number;
   reservation_fee_centavos: number;
   delivery_fee_centavos: number;
@@ -135,4 +144,6 @@ export type Slot = {
   end_time: string;
   max_reservations: number;
   remaining: number;
+  portions_left?: number;
+  availability?: 'available' | 'limited' | 'full' | 'unavailable';
 };

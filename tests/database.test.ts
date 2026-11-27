@@ -35,11 +35,17 @@ async function create(
 beforeAll(async () => {
   db = new PGlite({ extensions: { pgcrypto, pg_trgm } });
   await db.exec(
-    `create role anon;create role authenticated;create schema auth;create schema storage;create schema extensions;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,owner_id text);alter table storage.objects enable row level security;create function storage.foldername(text) returns text[] language sql as $$ select string_to_array($1,'/') $$;create publication supabase_realtime;`,
+    `create role anon;create role authenticated;create role service_role;create schema auth;create schema storage;create schema extensions;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,owner_id text);alter table storage.objects enable row level security;create function storage.foldername(text) returns text[] language sql as $$ select string_to_array($1,'/') $$;create publication supabase_realtime;`,
   );
   for (const file of (await readdir('supabase/migrations')).sort())
     await db.exec(await readFile(`supabase/migrations/${file}`, 'utf8'));
   await db.exec(await readFile('supabase/seed.sql', 'utf8'));
+  // Allow these fixtures to use the current clock even when the suite runs after campus hours.
+  await db.exec('alter table public.stalls drop constraint stalls_reservation_hours');
+  await db.query(
+    "update public.stalls set reservation_opens_at='00:00',reservation_closes_at='23:59:59' where id=$1",
+    [stall],
+  );
   for (const [id, email] of [
     [student, 'student@example.com'],
     [other, 'other@example.com'],
@@ -49,7 +55,7 @@ beforeAll(async () => {
     await db.query('insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)', [
       id,
       email,
-      JSON.stringify({ full_name: 'Test User', student_id: 'TEST' }),
+      JSON.stringify({ full_name: 'Test User', student_id: email.split('@')[0] + '-TEST' }),
     ]);
   await db.query("update public.user_roles set role='seller' where user_id=$1", [seller]);
   await db.query("update public.user_roles set role='admin' where user_id=$1", [admin]);
@@ -64,6 +70,53 @@ afterAll(async () => {
   await db?.close();
 });
 describe('Database authorization and atomic lifecycle', () => {
+  it('keeps student-number lookup private and stall applicants separate from students', async () => {
+    await as(student);
+    await expect(db.query("select public.student_login_email('student-test')")).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(
+      db.query("select public.register_seller('Other stall',$1,'09123456789','stall.png')", [
+        '00000000-0000-4000-8000-000000000001',
+      ]),
+    ).rejects.toThrow(/separate Stall Portal account/);
+    await owner();
+    await db.exec('set role service_role');
+    expect(
+      (await db.query("select public.student_login_email(' STUDENT-TEST ') as email")).rows,
+    ).toEqual([{ email: 'student@example.com' }]);
+    expect(
+      (await db.query("select public.student_login_email('seller-test') as email")).rows,
+    ).toEqual([{ email: null }]);
+    await owner();
+    const applicant = 'a905980a-5e55-4311-903f-a6f0bcc1b4a1';
+    await db.query(
+      "insert into auth.users(id,email,raw_user_meta_data) values($1,'newstall@example.com',$2)",
+      [applicant, JSON.stringify({ account_type: 'seller', student_id: 'student-test' })],
+    );
+    await as(applicant);
+    expect((await db.query("select public.has_role('student') as allowed")).rows).toEqual([
+      { allowed: false },
+    ]);
+    const submitted = await db.query<{ id: string }>(
+      "select public.register_seller('New stall',$1,'09123456789','stall.png') as id",
+      ['00000000-0000-4000-8000-000000000001'],
+    );
+    expect(
+      (
+        await db.query('select approval_status from public.stalls where id=$1', [
+          submitted.rows[0].id,
+        ])
+      ).rows,
+    ).toEqual([{ approval_status: 'pending' }]);
+    await owner();
+    await expect(
+      db.query(
+        "insert into auth.users(id,email,raw_user_meta_data) values(gen_random_uuid(),'duplicate@example.com',$1)",
+        [JSON.stringify({ student_id: ' STUDENT-TEST ' })],
+      ),
+    ).rejects.toThrow(/already registered/);
+  });
   it('lists and accepts only pickup times that fit within today in Manila', async () => {
     await owner();
     await db.exec("set time zone 'America/Los_Angeles'");
@@ -253,6 +306,9 @@ describe('Database authorization and atomic lifecycle', () => {
     const cashIn = (amount: number) =>
       db.query('select public.simulate_wallet_cash_in($1,$2)', [amount, cashInKey]);
     await as(student);
+    await db.query('update public.profiles set wallet_reminder_enabled=true where id=$1', [
+      student,
+    ]);
     expect(await getBalance()).toBe(0);
     await expect(create(crypto.randomUUID(), 1, walletSlot.id, 'cash')).rejects.toThrow(
       'Choose GCash',
@@ -274,6 +330,14 @@ describe('Database authorization and atomic lifecycle', () => {
     const id = await create(orderKey, 1, walletSlot.id, 'wallet');
     expect(await create(orderKey, 1, walletSlot.id, 'wallet')).toBe(id);
     expect(await getBalance()).toBe(1500);
+    expect(
+      (
+        await db.query(
+          "select id from public.notifications where title='Wallet balance is low' and order_id=$1",
+          [id],
+        )
+      ).rows,
+    ).toHaveLength(1);
     await as(other);
     expect(await getBalance()).toBe(0);
     await expect(
@@ -329,7 +393,7 @@ describe('Database authorization and atomic lifecycle', () => {
     ).toHaveLength(0);
     await expect(
       db.query('select public.manage_seller_approval($1,$2)', [stall, 'approved']),
-    ).rejects.toThrow('Not authorized');
+    ).rejects.toThrow('Administrator access');
     await expect(
       db.query('select public.set_account_suspension($1,true)', [seller]),
     ).rejects.toThrow('Not authorized');
@@ -357,8 +421,16 @@ describe('Database authorization and atomic lifecycle', () => {
     ).toEqual({ approval_status: 'pending' });
     await expect(
       db.query("select public.manage_seller_approval($1,'approved')", [id]),
-    ).rejects.toThrow('Not authorized');
+    ).rejects.toThrow('Administrator access');
+    await db.query('select public.accept_stall_standards($1)', [id]);
     await as(admin);
+    await expect(
+      db.query("select public.manage_seller_approval($1,'approved')", [id]),
+    ).rejects.toThrow('Review the stall verification');
+    await db.query(
+      "select public.review_stall_documents($1,'verified',null,'Verified for the pilot')",
+      [id],
+    );
     await db.query("select public.manage_seller_approval($1,'approved')", [id]);
     await as(applicant);
     expect(await canManage()).toBe(true);
@@ -624,6 +696,127 @@ describe('Database authorization and atomic lifecycle', () => {
         )
       ).rows[0],
     ).toEqual({ phase: 'unsuccessful', worker_earnings_centavos: 1000 });
+  });
+  it('shares verification across PIN and QR and adjudicates private reports with budgeted rewards', async () => {
+    await owner();
+    await db.query('update public.menu_items set stock_quantity=30 where id=$1', [item]);
+    const {
+      rows: [period],
+    } = await db.query<{ id: string }>(
+      "insert into public.pickup_slots(stall_id,start_time,end_time,max_reservations) values($1,now()+interval '10 minutes',now()+interval '30 minutes',5) returning id",
+      [stall],
+    );
+    await as(admin);
+    await db.query('select public.reward_admin(1,500,500)');
+    await as(other);
+    const meal = await create(crypto.randomUUID(), 1, period.id);
+    const {
+      rows: [{ code }],
+    } = await db.query<{ code: { pin: string; token: string } }>(
+      'select public.issue_pickup_credentials($1) as code',
+      [meal],
+    );
+    expect(code.pin).toMatch(/^\d{6}$/);
+    await as(seller);
+    const checkPin = async (confirm: boolean) =>
+      (
+        await db.query<{ result: { error?: string } }>(
+          'select public.verify_pickup_pin($1,$2,$3) as result',
+          [stall, code.pin, confirm],
+        )
+      ).rows[0].result;
+    expect(await checkPin(false)).not.toHaveProperty('error');
+    expect(
+      (await db.query('select status from public.orders where id=$1', [meal])).rows[0],
+    ).toEqual({ status: 'reserved' });
+    expect(await checkPin(true)).not.toHaveProperty('error');
+    expect(await checkPin(true)).toHaveProperty('error');
+    await expect(
+      db.query('select public.inspect_pickup_token($1)', [code.token]),
+    ).rejects.toThrow();
+    await as(other);
+    const rewards = async () =>
+      (
+        await db.query<{
+          result: {
+            available: { id: string; amount_centavos: number }[];
+            history: { action: string }[];
+          };
+        }>('select public.student_rewards() as result')
+      ).rows[0].result;
+    const earned = (await rewards()).available;
+    expect(earned).toHaveLength(1);
+    expect(earned[0].amount_centavos).toBe(500);
+    const discount = async (key: string) =>
+      (
+        await db.query<{ id: string }>(
+          "select public.create_reward_reservation($1,$2,$3,$4,'','gcash',8000,null,false,$5) as id",
+          [stall, period.id, JSON.stringify([{ id: item, quantity: 1 }]), key, earned[0].id],
+        )
+      ).rows[0].id;
+    await as(student);
+    await expect(discount(crypto.randomUUID())).rejects.toThrow('reward is unavailable');
+    await as(other);
+    const key = crypto.randomUUID();
+    const discounted = await discount(key);
+    expect(await discount(key)).toBe(discounted);
+    await expect(discount(crypto.randomUUID())).rejects.toThrow('reward is unavailable');
+    expect(
+      (
+        await db.query(
+          'select total_centavos,reward_discount_centavos,stall_fee_share_centavos from public.orders where id=$1',
+          [discounted],
+        )
+      ).rows[0],
+    ).toEqual({
+      total_centavos: 8000,
+      reward_discount_centavos: 500,
+      stall_fee_share_centavos: 1000,
+    });
+    await as(seller);
+    await db.query("select public.cancel_order($1,'Changed lunch plans')", [discounted]);
+    await as(other);
+    expect((await rewards()).available).toEqual(earned);
+    await db.query(
+      'insert into public.order_reviews(order_id,customer_id,quality,temperature,packaging,accuracy,experience) values($1,$2,5,4,5,4,5)',
+      [meal, other],
+    );
+    await expect(
+      db.query(
+        'insert into public.order_reviews(order_id,customer_id,quality,temperature,packaging,accuracy,experience) values($1,$2,5,4,5,4,5)',
+        [meal, other],
+      ),
+    ).rejects.toThrow(/duplicate/);
+    const {
+      rows: [{ report }],
+    } = await db.query<{ report: string }>(
+      "select public.submit_order_report($1,'missing_items','Part of my meal was missing') as report",
+      [meal],
+    );
+    await as(seller);
+    expect(
+      (await db.query('select id from public.order_reports where id=$1', [report])).rows,
+    ).toEqual([]);
+    await expect(
+      db.query(
+        "select public.review_order_report($1,'resolved','full_refund','Verified the report')",
+        [report],
+      ),
+    ).rejects.toThrow('Administrator');
+    await as(admin);
+    await db.query(
+      "select public.review_order_report($1,'resolved','full_refund','Verified the report')",
+      [report],
+    );
+    await expect(
+      db.query(
+        "select public.review_order_report($1,'resolved','full_refund','Verified the report')",
+        [report],
+      ),
+    ).rejects.toThrow('open report');
+    await as(other);
+    expect((await rewards()).available).toEqual([]);
+    expect((await rewards()).history.map((event) => event.action)).toContain('revoked');
   });
   it('suspension prevents protected operations', async () => {
     await as(admin);

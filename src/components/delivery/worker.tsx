@@ -1,4 +1,5 @@
 'use client';
+import { OrderSupport } from '@/components/order-support';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -471,6 +472,7 @@ function WorkerJob({
         </>
       )}
       {job.phase === 'assigned' && <DeliveryCodes orderId={job.order_id} stage="pickup" />}
+      {job.worker_id && <OrderSupport orderId={job.order_id} />}
       {job.phase === 'collected' && (
         <button className="primary-button" disabled={busy} onClick={() => action('start')}>
           Start delivery

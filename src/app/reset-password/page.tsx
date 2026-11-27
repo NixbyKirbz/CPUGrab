@@ -1,9 +1,10 @@
 import { Suspense } from 'react';
 import { Auth } from '@/components/auth';
-export default function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<{ role?: string }> }) {
+  const { role } = await searchParams;
   return (
     <Suspense>
-      <Auth mode="reset" />
+      <Auth mode="reset" seller={role === 'seller'} />
     </Suspense>
   );
 }

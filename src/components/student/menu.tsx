@@ -91,10 +91,13 @@ export function Menu({ id, food = false }: { id: string; food?: boolean }) {
       </Empty>
     );
   const location = data.locations.find((l) => l.id === stall.location_id);
+  const stallOpen = stall.is_open && stall.reservation_mode !== 'paused';
+  const itemAvailable = stallOpen && Boolean(item?.is_available && item.stock_quantity !== 0);
   const subtotal = lines.reduce((sum, x) => sum + x.price_centavos * x.quantity, 0);
   const count = lines.reduce((sum, x) => sum + x.quantity, 0);
   const add = () => {
-    if (!item) return;
+    if (!item || !itemAvailable || (item.stock_quantity !== null && quantity > item.stock_quantity))
+      return;
     if (!useCart.getState().add(item, quantity)) {
       if (!window.confirm('Replace your current cart with food from this stall?')) return;
       useCart.getState().add(item, quantity, true);
@@ -109,7 +112,11 @@ export function Menu({ id, food = false }: { id: string; food?: boolean }) {
             ← Back to {stall.name}
           </Link>
           <div className="food-detail">
-            <img src={item.image_url} alt={item.name} />
+            <img
+              src={item.image_url}
+              alt={item.name}
+              style={itemAvailable ? undefined : { filter: 'grayscale(1)' }}
+            />
             <div className="food-detail-copy">
               <Link className="eyebrow" href={`/student/stall/${stall.id}`}>
                 {stall.name} · {location?.name}
@@ -118,19 +125,25 @@ export function Menu({ id, food = false }: { id: string; food?: boolean }) {
                 <h1>{item.name}</h1>
                 <FavoriteButton id={item.id} kind="menu_item_id" />
               </div>
-              <span className={`status-dot ${item.is_available && stall.is_open ? 'open' : ''}`}>
+              <span className={`status-dot ${itemAvailable ? 'open' : ''}`}>
                 {!stall.is_open
                   ? 'Stall closed'
-                  : item.is_available
-                    ? 'Available for pickup'
-                    : 'Currently unavailable'}
+                  : stall.reservation_mode === 'paused'
+                    ? 'Reservations paused'
+                    : item.stock_quantity === 0
+                      ? 'Sold out for reservations'
+                      : itemAvailable
+                        ? 'Available for pickup'
+                        : 'Currently unavailable'}
               </span>
               <p>{item.description}</p>
               <strong>{money(item.price_centavos)}</strong>
               <Quantity value={quantity} onChange={(q) => setQuantity(Math.max(1, q))} />
               <button
                 className="primary-button"
-                disabled={!item.is_available || !stall.is_open}
+                disabled={
+                  !itemAvailable || (item.stock_quantity !== null && quantity > item.stock_quantity)
+                }
                 onClick={add}
               >
                 <ShoppingBag size={17} />
@@ -158,8 +171,12 @@ export function Menu({ id, food = false }: { id: string; food?: boolean }) {
                   <MapPin size={14} />
                   {location?.name}
                   <span>·</span>
-                  <span className={`status-dot ${stall.is_open ? 'open' : ''}`}>
-                    {stall.is_open ? 'Open for reservations' : 'Closed'}
+                  <span className={`status-dot ${stallOpen ? 'open' : ''}`}>
+                    {stallOpen
+                      ? 'Open for reservations'
+                      : stall.is_open
+                        ? 'Reservations paused'
+                        : 'Closed'}
                   </span>
                 </p>
               </div>

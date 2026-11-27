@@ -87,7 +87,9 @@ export function Profile() {
                   .from('profiles')
                   .update({
                     full_name: String(form.get('full_name')).trim(),
-                    student_id: String(form.get('student_id')),
+                    ...(role === 'student' && {
+                      student_id: String(form.get('student_id')).trim() || null,
+                    }),
                     avatar_url: avatar,
                     notifications_enabled: form.get('notifications') === 'on',
                   })
@@ -106,10 +108,12 @@ export function Profile() {
               Full name
               <input name="full_name" defaultValue={profile?.full_name} required maxLength={120} />
             </label>
-            <label>
-              Student ID
-              <input name="student_id" defaultValue={profile?.student_id} maxLength={40} />
-            </label>
+            {role === 'student' && (
+              <label>
+                Student number
+                <input name="student_id" defaultValue={profile?.student_id} maxLength={40} />
+              </label>
+            )}
             <label>
               Profile photo
               <input type="file" name="avatar" accept="image/jpeg,image/png,image/webp" />
@@ -179,21 +183,39 @@ export function Profile() {
               </Link>
             )}
             {role === 'student' && (
+              <Link href="/student/wallet">
+                <span>Wallet and payments</span>
+                <ChevronRight size={16} />
+              </Link>
+            )}
+            {role === 'student' && (
+              <Link href="/student/rewards">
+                <span>CPUGrab Rewards</span>
+                <ChevronRight size={16} />
+              </Link>
+            )}
+            {role === 'student' && (
               <Link href="/student/delivery">
                 <span>Campus delivery work</span>
                 <ChevronRight size={16} />
               </Link>
             )}
             {role === 'student' && (
-              <Link href="/register/stall">
+              <a href="/login?role=seller">
                 <span>
                   <Store size={16} style={{ display: 'inline', marginRight: 8 }} />
-                  Apply as a stall partner
+                  Open Stall Portal
                 </span>
                 <ChevronRight size={16} />
-              </Link>
+              </a>
             )}
-            <Link href="/forgot-password">
+            {role === 'seller' && (
+              <a href="/login">
+                Open Student Portal
+                <ChevronRight size={16} />
+              </a>
+            )}
+            <Link href={role === 'seller' ? '/forgot-password?role=seller' : '/forgot-password'}>
               Reset password
               <ChevronRight size={16} />
             </Link>
@@ -206,10 +228,14 @@ export function Profile() {
             </button>
             <button
               onClick={async () => {
-                await getSupabase().auth.signOut();
-                useCart.getState().scope('guest');
+                const { error } = await getSupabase().auth.signOut({ scope: 'local' });
+                if (error) {
+                  toast(error.message);
+                  return;
+                }
+                if (role !== 'seller') useCart.getState().scope('guest');
                 query.clear();
-                window.location.replace('/login');
+                window.location.replace(role === 'seller' ? '/login?role=seller' : '/login');
               }}
             >
               <span>

@@ -24,6 +24,8 @@ import { useSession } from '@/components/providers';
 import { SearchField } from '@/components/shell';
 import { Loading, ErrorBox, Empty } from '@/components/ui';
 import { useCart } from '@/stores/cart';
+import { MealPlanning } from './meal-planning';
+import { useWalletBalance } from './wallet-cash-in';
 import type { MenuItem, Catalog } from '@/types';
 const icons = [Utensils, Sandwich, CupSoda, Soup, IceCreamBowl];
 export function FoodCard({
@@ -36,6 +38,11 @@ export function FoodCard({
   variant?: 'tile' | 'menu' | 'search';
 }) {
   const stall = catalog.stalls.find((s) => s.id === item.stall_id);
+  const available =
+    item.is_available &&
+    item.stock_quantity !== 0 &&
+    stall?.is_open &&
+    stall.reservation_mode !== 'paused';
   const { toast } = useSession();
   const add = () => {
     if (!useCart.getState().add(item)) {
@@ -46,15 +53,21 @@ export function FoodCard({
     toast(`${item.name} added to your cart`);
   };
   return (
-    <article
-      className={`food-card food-card-${variant} ${!item.is_available ? 'unavailable' : ''}`}
-    >
+    <article className={`food-card food-card-${variant} ${!available ? 'unavailable' : ''}`}>
       <div className="food-image">
         <Link href={`/student/food/${item.id}`} aria-label={item.name}>
           <img src={item.image_url} alt="" loading="lazy" draggable={false} />
         </Link>
-        {(!item.is_available || !stall?.is_open) && (
-          <span className="sold-out">{stall?.is_open ? 'Unavailable' : 'Stall closed'}</span>
+        {!available && (
+          <span className="sold-out">
+            {!stall?.is_open
+              ? 'Stall closed'
+              : stall.reservation_mode === 'paused'
+                ? 'Reservations paused'
+                : item.stock_quantity === 0
+                  ? 'Sold out for reservations'
+                  : 'Unavailable'}
+          </span>
         )}
       </div>
       <div className="food-card-copy">
@@ -70,7 +83,7 @@ export function FoodCard({
           <strong>{money(item.price_centavos)}</strong>
         </div>
       </div>
-      {item.is_available && stall?.is_open && (
+      {available && (
         <button aria-label={`Add ${item.name} to cart`} onClick={add} className="add-food">
           <Plus size={18} />
         </button>
@@ -81,7 +94,10 @@ export function FoodCard({
 export function Browse({ location, search = false }: { location?: string; search?: boolean }) {
   const router = useRouter();
   const params = useSearchParams();
-  const { name } = useSession();
+  const { name, user, role } = useSession();
+  const wallet = useWalletBalance(
+    !location && !search && role === 'student' ? user?.id : undefined,
+  );
   const { data, error, isPending, refetch } = useQuery({
     queryKey: ['catalog'],
     queryFn: fetchCatalog,
@@ -165,6 +181,11 @@ export function Browse({ location, search = false }: { location?: string; search
             </h1>
             <p>Central Philippine University</p>
           </div>
+          {wallet.data !== undefined && (
+            <Link className="secondary-button" href="/student/wallet">
+              Wallet · {money(wallet.data)}
+            </Link>
+          )}
         </section>
       ) : !search ? (
         <section
@@ -424,6 +445,7 @@ export function Browse({ location, search = false }: { location?: string; search
             ))}
         </section>
       )}
+      {!location && !filtered && !search && <MealPlanning catalog={data} />}
     </motion.div>
   );
 }

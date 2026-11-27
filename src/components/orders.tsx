@@ -19,6 +19,7 @@ import type { Order, OrderStatus } from '@/types';
 import { walletBalanceKey } from './student/wallet-cash-in';
 import { VerifyDeliveryCode } from '@/components/delivery/codes';
 import { deliveryLabel } from '@/lib/format';
+import { OrderSupport } from '@/components/order-support';
 export function CancelDialog({ order, onClose }: { order: Order; onClose: () => void }) {
   const [reason, setReason] = useState('');
   const [other, setOther] = useState('');
@@ -295,6 +296,7 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
                   </>
                 )}
               </div>
+              {seller && <OrderSupport orderId={o.id} order={o} />}
             </article>
           ))}
         </div>
