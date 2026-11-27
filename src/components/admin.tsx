@@ -344,6 +344,9 @@ export function Admin({
                   .from('platform_settings')
                   .update({
                     reservation_fee_centavos: fee,
+                    delivery_fee_centavos: Math.round(Number(form.get('delivery')) * 100),
+                    group_delivery_fee_centavos: Math.round(Number(form.get('group-fee')) * 100),
+                    group_delivery_max_orders: Number(form.get('group-limit')),
                     stall_fee_share_centavos: stall,
                     platform_fee_share_centavos: platform,
                     default_markup_centavos: Number(form.get('markup')),
@@ -394,6 +397,42 @@ export function Admin({
                 />
               </label>
             </div>
+            <label>
+              Campus delivery fee and worker compensation (₱)
+              <input
+                name="delivery"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                required
+                defaultValue={(data.settings.delivery_fee_centavos ?? 1500) / 100}
+              />
+            </label>
+            <label>
+              Group delivery fee per order (₱)
+              <input
+                name="group-fee"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                required
+                defaultValue={(data.settings.group_delivery_fee_centavos ?? 1000) / 100}
+              />
+            </label>
+            <label>
+              Maximum orders per group trip
+              <input
+                name="group-limit"
+                type="number"
+                min="2"
+                max="4"
+                step="1"
+                required
+                defaultValue={data.settings.group_delivery_max_orders ?? 3}
+              />
+            </label>
             <label>
               Per-item price adjustment
               <select name="markup" defaultValue={data.settings.default_markup_centavos}>
@@ -448,6 +487,7 @@ export function Admin({
                   image_url: image,
                   display_order: Number(form.get('order')),
                   is_active: form.get('active') === 'on',
+                  is_delivery_dropoff: form.get('delivery') === 'on',
                 };
                 const result = location.id
                   ? await getSupabase().from('locations').update(value).eq('id', location.id)
@@ -481,6 +521,14 @@ export function Admin({
             <label className="check-label">
               <input name="active" type="checkbox" defaultChecked={location.is_active} />
               Active
+            </label>
+            <label className="check-label">
+              <input
+                name="delivery"
+                type="checkbox"
+                defaultChecked={location.is_delivery_dropoff}
+              />
+              Approved campus drop-off point
             </label>
             <button className="primary-button" disabled={busy}>
               <Busy busy={busy}>Save location</Busy>

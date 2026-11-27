@@ -2,6 +2,8 @@
 
 Automated local checks cover TypeScript, ESLint, production compilation, pricing/cart behavior, actual SQL migrations and reservation lifecycle in embedded PostgreSQL, plus Playwright desktop and mobile-sized browsing.
 
+Set `TEST_STUDENT_EMAIL` and `TEST_STUDENT_PASSWORD` for a dedicated staging account to run the signed-in Playwright scenarios. The login-first and Stall Portal routing checks run without these credentials.
+
 ## Live Supabase
 
 Use separate verified student A, student B, seller A, seller B and administrator accounts. Use an isolated staging project with disposable development data.
@@ -16,6 +18,7 @@ Use separate verified student A, student B, seller A, seller B and administrator
 8. Verify future slot filtering and Asia/Manila pickup boundaries. Close/suspend a stall or deactivate its location and check that new reservations are rejected.
 9. Upload valid image formats and reject oversized/unsupported files. Attempt another user's Storage folder. Confirm bucket configuration and object policies.
 10. Cash in from Student Home and checkout. Verify the balance after reload, pay once by each method, and cancel eligible orders. A wallet refund restores the wallet balance. A simulated GCash refund leaves it unchanged.
+11. Approve a worker and campus drop-off, enable a stall, and test an individual and a group delivery. Verify offer expiration refunds, separate pickup and handover, one completed order per verified customer code, and worker compensation after completion or administrator resolution.
 
 ## Physical Android and iPhone
 

@@ -18,6 +18,8 @@ import {
 import { useSession } from '@/components/providers';
 import { PageTitle, Loading, ErrorBox, Empty, Busy } from '@/components/ui';
 import { CancelDialog } from '@/components/orders';
+import { orderSelect } from '@/services/orders';
+import { CustomerDelivery } from '@/components/delivery/customer';
 import type { Order } from '@/types';
 export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boolean }) {
   const { user } = useSession();
@@ -37,7 +39,7 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
     queryFn: async () => {
       const { data, error } = await getSupabase()
         .from('orders')
-        .select('*,order_items(*),pickup_slots(start_time,end_time)')
+        .select(orderSelect)
         .eq('id', id)
         .single();
       if (error) throw error;
@@ -58,7 +60,7 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
   const stall = catalog?.stalls.find((s) => s.id === o.stall_id);
   const active = ['reserved', 'ready'].includes(o.status);
   const confirmed = params.get('confirmed') === '1';
-  const canPickUp = active && o.payment_status === 'paid';
+  const canPickUp = active && o.payment_status === 'paid' && !o.delivery;
   const showConfirmation = !pickup && confirmed && canPickUp;
   const generate = async () => {
     setBusy(true);
@@ -103,6 +105,14 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
       </div>
     </>
   );
+  if (pickup && o.delivery)
+    return (
+      <Empty title="Campus delivery" text="Use the customer handover code on your order.">
+        <Link className="primary-button" href={`/student/order/${id}`}>
+          View delivery
+        </Link>
+      </Empty>
+    );
   return pickup ? (
     <>
       <PageTitle title="Your pickup code" back={`/student/order/${id}`} />
@@ -184,6 +194,12 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
           ? 'Show this QR code at the stall to claim your order.'
           : statusLabel(o.status)}
       </p>
+      {o.delivery && (
+        <CustomerDelivery
+          delivery={o.delivery}
+          dropoff={catalog?.locations.find((item) => item.id === o.delivery?.dropoff_id)?.name}
+        />
+      )}
       <section className="panel">
         {details}
         <hr style={{ border: 0, borderTop: '1px solid #e5e7eb', margin: '13px 0' }} />
@@ -199,6 +215,12 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
           <span>Reservation fee</span>
           <strong>{money(o.reservation_fee_centavos)}</strong>
         </div>
+        {o.delivery && (
+          <div className="detail-row">
+            <span>Campus delivery fee</span>
+            <strong>{money(o.delivery_fee_centavos)}</strong>
+          </div>
+        )}
         <div className="detail-row total-row">
           <span>Total</span>
           <strong>{money(o.total_centavos)}</strong>

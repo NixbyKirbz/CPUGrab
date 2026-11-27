@@ -6,6 +6,7 @@ export type Location = {
   image_url: string;
   is_active: boolean;
   display_order: number;
+  is_delivery_dropoff?: boolean;
 };
 export type Category = { id: string; name: string; icon: string; display_order: number };
 export type Stall = {
@@ -19,6 +20,8 @@ export type Stall = {
   contact_number: string;
   opening_hours: string;
   is_open: boolean;
+  delivery_enabled?: boolean;
+  delivery_closes_at?: string;
   is_demo?: boolean;
   updated_at?: string;
   approval_status: 'pending' | 'approved' | 'suspended';
@@ -41,6 +44,9 @@ export type Pricing = {
   stall_fee_share_centavos: number;
   platform_fee_share_centavos: number;
   default_markup_centavos: number;
+  delivery_fee_centavos?: number;
+  group_delivery_fee_centavos?: number;
+  group_delivery_max_orders?: number;
 };
 export type Catalog = {
   locations: Location[];
@@ -51,6 +57,50 @@ export type Catalog = {
 };
 export type OrderStatus = 'reserved' | 'ready' | 'completed' | 'cancelled';
 export type PaymentMethod = 'gcash' | 'wallet';
+export type DeliveryPhase =
+  | 'pending'
+  | 'assigned'
+  | 'collected'
+  | 'on_the_way'
+  | 'arrived'
+  | 'completed'
+  | 'cancelled'
+  | 'handover_issue'
+  | 'unsuccessful';
+export type DeliveryWorker = {
+  user_id: string;
+  full_name: string;
+  student_number: string;
+  contact: string;
+  demo_verification: string;
+  review_status: 'pending' | 'approved' | 'declined' | 'suspended';
+  available_from: string | null;
+  available_until: string | null;
+  next_class_at: string | null;
+  preferred_areas: string[];
+};
+export type Delivery = {
+  order_id: string;
+  worker_id: string | null;
+  group_id: string | null;
+  stall_id: string;
+  dropoff_id: string;
+  phase: DeliveryPhase;
+  offer_expires_at: string;
+  pickup_start: string;
+  pickup_end: string;
+  delivery_until: string;
+  wait_until: string | null;
+  customer_ready_at: string | null;
+  completed_at: string | null;
+  delay_requested_minutes: number | null;
+  delay_decision: 'pending' | 'accepted' | 'declined' | null;
+  recipient_name: string | null;
+  compensation_centavos: number;
+  settled_at: string | null;
+  worker_earnings_centavos: number;
+  issue_note: string | null;
+};
 export type OrderItem = {
   item_name_snapshot: string;
   quantity: number;
@@ -68,6 +118,7 @@ export type Order = {
   payment_status: 'unpaid' | 'paid' | 'refunded';
   subtotal_centavos: number;
   reservation_fee_centavos: number;
+  delivery_fee_centavos: number;
   markup_centavos: number;
   total_centavos: number;
   cancellation_reason: string | null;
@@ -76,6 +127,7 @@ export type Order = {
   completed_at: string | null;
   order_items: OrderItem[];
   pickup_slots: { start_time: string; end_time: string };
+  delivery: Delivery | null;
 };
 export type Slot = {
   id: string;

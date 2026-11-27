@@ -1,10 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff, ArrowLeft, Mail, LockKeyhole } from 'lucide-react';
 import { configured, getSupabase } from '@/lib/supabase/client';
 import { Busy, ErrorBox } from './ui';
@@ -16,14 +15,22 @@ const schema = z.object({
   confirm: z.string().optional(),
 });
 type Fields = z.infer<typeof schema>;
-export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset' }) {
-  const router = useRouter();
-  const params = useSearchParams();
-  const seller = params.get('role') === 'seller';
+export function Auth({
+  mode,
+  seller = false,
+}: {
+  mode: 'login' | 'register' | 'forgot' | 'reset';
+  seller?: boolean;
+}) {
   const [visible, setVisible] = useState(false);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setReady(true), 0);
+    return () => clearTimeout(timer);
+  }, []);
   const {
     register,
     handleSubmit,
@@ -54,8 +61,7 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
         const body = await res.json();
         if (!res.ok) throw new Error(body.error);
         if (body.signedIn) {
-          router.replace(seller ? '/register/stall' : '/student/home');
-          router.refresh();
+          window.location.replace(seller ? '/register/stall' : '/');
           return;
         }
         setNotice(
@@ -63,26 +69,12 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
             (seller ? ' and complete your stall application.' : '.'),
         );
       } else if (mode === 'login') {
-        const { data, error } = await db.auth.signInWithPassword({
+        const { error } = await db.auth.signInWithPassword({
           email: values.email,
           password: values.password,
         });
         if (error) throw error;
-        const roles = await db
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', data.user.id)
-          .single();
-        router.push(
-          roles.data?.role === 'admin'
-            ? '/admin'
-            : roles.data?.role === 'seller'
-              ? '/seller/dashboard'
-              : data.user.user_metadata.account_type === 'seller'
-                ? '/register/stall'
-                : '/student/home',
-        );
-        router.refresh();
+        window.location.replace(seller ? '/?role=seller' : '/');
       } else if (mode === 'forgot') {
         const { error } = await db.auth.resetPasswordForEmail(values.email, {
           redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
@@ -148,13 +140,13 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
             <div className="notice">
               {notice}
               <div>
-                <Link className="text-button" href="/login">
+                <Link className="text-button" href={seller ? '/login?role=seller' : '/login'}>
                   Back to sign in →
                 </Link>
               </div>
             </div>
           ) : (
-            <form className="form-stack" onSubmit={handleSubmit(submit)}>
+            <form method="post" className="form-stack" onSubmit={handleSubmit(submit)}>
               {mode === 'register' && (
                 <>
                   <label>
@@ -176,9 +168,7 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
               )}
               {mode !== 'reset' && (
                 <label>
-                  <span className={mode === 'login' ? 'sr-only' : undefined}>
-                    {mode === 'register' && !seller ? 'University email' : 'Email address'}
-                  </span>
+                  <span className={mode === 'login' ? 'sr-only' : undefined}>Email address</span>
                   <div className="auth-field">
                     {mode === 'login' && <Mail size={19} aria-hidden="true" />}
                     <input
@@ -238,7 +228,7 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
                   <Link href="/forgot-password">Forgot password?</Link>
                 </div>
               )}
-              <button className="primary-button full-width" disabled={busy}>
+              <button className="primary-button full-width" disabled={!ready || busy}>
                 <Busy busy={busy}>
                   {mode === 'login'
                     ? 'Log In'
@@ -269,7 +259,8 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
               </>
             ) : (
               <>
-                Already have an account? <Link href="/login">Sign in</Link>
+                Already have an account?{' '}
+                <Link href={seller ? '/login?role=seller' : '/login'}>Sign in</Link>
               </>
             )}
           </div>
@@ -278,13 +269,11 @@ export function Auth({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset'
               <Link href="/login?role=seller">Stall Portal</Link>
             </div>
           )}
-          <Link
-            className="auth-home"
-            href={seller && mode === 'login' ? '/login' : '/student/home'}
-          >
-            <ArrowLeft size={14} />
-            {seller && mode === 'login' ? 'Student login' : 'Back to browsing'}
-          </Link>
+          {seller && (
+            <Link className="auth-home" href="/login">
+              <ArrowLeft size={14} /> Student login
+            </Link>
+          )}
         </div>
       </main>
     </div>

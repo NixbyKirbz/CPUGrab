@@ -1,9 +1,8 @@
-import { Suspense } from 'react';
 import { Auth } from '@/components/auth';
-export default function Page() {
-  return (
-    <Suspense>
-      <Auth mode="login" />
-    </Suspense>
-  );
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ role?: string | string[] }>;
+}) {
+  return <Auth mode="login" seller={(await searchParams).role === 'seller'} />;
 }

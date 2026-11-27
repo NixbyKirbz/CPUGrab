@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'CPUGrab — Campus Food Reservation',
     short_name: 'CPUGrab',
     description: 'Reserve campus food, pick up, and skip the line.',
-    start_url: '/student/home',
+    start_url: '/',
     scope: '/',
     display: 'standalone',
     background_color: '#ffffff',

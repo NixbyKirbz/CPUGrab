@@ -4,6 +4,7 @@ import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
 import { Check, ScanLine, Camera, CameraOff } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { rpc } from '@/services/catalog';
+import { deliveryAction, deliveryCode } from '@/services/delivery';
 import { PageTitle, ErrorBox, Busy } from '@/components/ui';
 export function Scanner() {
   const query = useQueryClient();
@@ -17,7 +18,7 @@ export function Scanner() {
   const [cameraError, setCameraError] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [token, setToken] = useState('');
-  const [completed, setCompleted] = useState('');
+  const [completed, setCompleted] = useState<{ orderNumber?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const stop = useCallback(() => {
     cameraRequested.current = false;
@@ -35,9 +36,19 @@ export function Scanner() {
     };
   }, []);
   const finish = async (raw: string) => {
-    const order = await rpc<{ order_number: string }>('redeem_pickup_token', { p_token: raw });
+    let orderNumber: string | undefined;
+    if (raw.startsWith('cpugrab:delivery-')) {
+      const decoded = deliveryCode(raw, 'pickup');
+      if (!decoded.orderId) throw new Error('Open the delivery in Orders to verify a PIN.');
+      await deliveryAction(decoded.orderId, 'collect', decoded.code);
+    } else {
+      const clean = raw.replace(/^cpugrab:pickup:/, '');
+      if (!/^[a-f0-9]{64}$/i.test(clean)) throw new Error('That is not a CPUGrab pickup code.');
+      const order = await rpc<{ order_number: string }>('redeem_pickup_token', { p_token: clean });
+      orderNumber = order.order_number;
+    }
     if (!mounted.current) return;
-    setCompleted(order.order_number);
+    setCompleted({ orderNumber });
     stop();
     navigator.vibrate?.([80, 50, 80]);
     if (sound.current?.state === 'running') {
@@ -58,11 +69,9 @@ export function Scanner() {
     locking.current = true;
     setBusy(true);
     setError(null);
-    const clean = raw.trim().replace(/^cpugrab:pickup:/, '');
     try {
-      if (!/^[a-f0-9]{64}$/i.test(clean)) throw new Error('That is not a CPUGrab pickup code.');
       stop();
-      await finish(clean);
+      await finish(raw.trim());
     } catch (e) {
       if (mounted.current) setError(e);
     } finally {
@@ -114,14 +123,18 @@ export function Scanner() {
         <div className="success-icon">
           <Check size={45} />
         </div>
-        <h1>Order Completed!</h1>
-        <p style={{ marginTop: 15 }}>#{completed}</p>
-        <p style={{ marginTop: 15 }}>The order has been successfully claimed.</p>
+        <h1>{completed.orderNumber ? 'Order Completed!' : 'Meal collected by delivery worker'}</h1>
+        {completed.orderNumber && <p style={{ marginTop: 15 }}>#{completed.orderNumber}</p>}
+        <p style={{ marginTop: 15 }}>
+          {completed.orderNumber
+            ? 'The order has been successfully claimed.'
+            : 'The order will complete after customer handover.'}
+        </p>
         <button
           className="primary-button full-width"
           style={{ marginTop: 30 }}
           onClick={() => {
-            setCompleted('');
+            setCompleted(null);
             setToken('');
           }}
         >
@@ -133,7 +146,7 @@ export function Scanner() {
     <>
       <PageTitle
         title="Scan Pickup QR"
-        subtitle="Scan the student’s QR code to complete their pickup."
+        subtitle="Scan a student or delivery worker’s pickup QR code."
         back="/seller/orders"
       />
       <section className="scanner-panel">
@@ -181,7 +194,7 @@ export function Scanner() {
               onChange={(e) => setToken(e.target.value)}
               placeholder="Enter the private code below the student’s QR"
               required
-              maxLength={100}
+              maxLength={160}
               autoComplete="off"
               spellCheck={false}
             />

@@ -1,4 +1,4 @@
-import { Shell } from '@/components/shell';
+import { SellerAccess } from '@/components/seller/context';
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return <Shell role="seller">{children}</Shell>;
+  return <SellerAccess>{children}</SellerAccess>;
 }

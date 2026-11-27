@@ -17,6 +17,8 @@ import { useSession } from './providers';
 import { PageTitle, Loading, ErrorBox, Empty, Modal, Busy } from './ui';
 import type { Order, OrderStatus } from '@/types';
 import { walletBalanceKey } from './student/wallet-cash-in';
+import { VerifyDeliveryCode } from '@/components/delivery/codes';
+import { deliveryLabel } from '@/lib/format';
 export function CancelDialog({ order, onClose }: { order: Order; onClose: () => void }) {
   const [reason, setReason] = useState('');
   const [other, setOther] = useState('');
@@ -223,6 +225,9 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
                   {day(o.pickup_slots.start_time)} · {time(o.pickup_slots.start_time)} –{' '}
                   {time(o.pickup_slots.end_time)}
                 </div>
+                {o.delivery && (
+                  <p className="help-text">Campus delivery · {deliveryLabel[o.delivery.phase]}</p>
+                )}
                 {o.cancellation_reason && (
                   <p className="help-text" style={{ marginTop: 12 }}>
                     Cancellation reason: {o.cancellation_reason}
@@ -238,29 +243,40 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
                 {seller ? (
                   ['reserved', 'ready'].includes(o.status) && (
                     <>
-                      {o.status === 'reserved' && o.payment_status === 'paid' && (
-                        <button
-                          className="ready-button"
-                          disabled={busy === o.id}
-                          onClick={async () => {
-                            setBusy(o.id);
-                            try {
-                              await rpc('mark_order_ready', { p_order: o.id });
-                              await query.invalidateQueries({ queryKey: ['orders'] });
-                            } catch (e) {
-                              toast(e instanceof Error ? e.message : 'Could not update order.');
-                            } finally {
-                              setBusy('');
-                            }
-                          }}
-                        >
-                          <Check size={15} />
-                          Mark as ready
+                      {o.status === 'reserved' &&
+                        o.payment_status === 'paid' &&
+                        (!o.delivery || o.delivery.phase === 'assigned') && (
+                          <button
+                            className="ready-button"
+                            disabled={busy === o.id}
+                            onClick={async () => {
+                              setBusy(o.id);
+                              try {
+                                await rpc('mark_order_ready', { p_order: o.id });
+                                await query.invalidateQueries({ queryKey: ['orders'] });
+                              } catch (e) {
+                                toast(e instanceof Error ? e.message : 'Could not update order.');
+                              } finally {
+                                setBusy('');
+                              }
+                            }}
+                          >
+                            <Check size={15} />
+                            Mark as ready
+                          </button>
+                        )}
+                      {o.status === 'ready' && o.delivery?.phase === 'assigned' && (
+                        <VerifyDeliveryCode
+                          orderId={o.id}
+                          stage="pickup"
+                          onVerified={() => void query.invalidateQueries()}
+                        />
+                      )}
+                      {(!o.delivery || ['pending', 'assigned'].includes(o.delivery.phase)) && (
+                        <button className="danger-button" onClick={() => setCancel(o)}>
+                          Cancel
                         </button>
                       )}
-                      <button className="danger-button" onClick={() => setCancel(o)}>
-                        Cancel
-                      </button>
                     </>
                   )
                 ) : (
@@ -268,12 +284,14 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
                     <Link className="secondary-button" href={`/student/order/${o.id}`}>
                       View details
                     </Link>
-                    {['reserved', 'ready'].includes(o.status) && o.payment_status === 'paid' && (
-                      <Link className="primary-button" href={`/student/pickup/${o.id}`}>
-                        <QrCode size={15} />
-                        Pickup code
-                      </Link>
-                    )}
+                    {['reserved', 'ready'].includes(o.status) &&
+                      o.payment_status === 'paid' &&
+                      !o.delivery && (
+                        <Link className="primary-button" href={`/student/pickup/${o.id}`}>
+                          <QrCode size={15} />
+                          Pickup code
+                        </Link>
+                      )}
                   </>
                 )}
               </div>

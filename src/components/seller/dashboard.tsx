@@ -6,7 +6,7 @@ import { useStall } from './context';
 import { useSession } from '@/components/providers';
 import { fetchCatalog } from '@/services/catalog';
 import { getSupabase } from '@/lib/supabase/client';
-import { Loading, ErrorBox, Empty, PageTitle } from '@/components/ui';
+import { Loading, ErrorBox } from '@/components/ui';
 import { useState } from 'react';
 export function SellerDashboard() {
   const { data: stall, isPending, error } = useStall();
@@ -17,34 +17,7 @@ export function SellerDashboard() {
   const location = catalog?.locations.find((item) => item.id === stall?.location_id);
   if (isPending) return <Loading />;
   if (error) return <ErrorBox error={error} />;
-  if (!stall)
-    return (
-      <Empty
-        title="Your stall starts here"
-        text="Submit a stall application and an administrator will review it."
-      >
-        <Link href="/register/stall" className="primary-button">
-          Apply for a stall
-        </Link>
-      </Empty>
-    );
-  if (stall.approval_status !== 'approved')
-    return (
-      <>
-        <PageTitle title={stall.name} />
-        <Empty
-          title={
-            stall.approval_status === 'pending'
-              ? 'Your application is being reviewed'
-              : 'Your stall is suspended'
-          }
-          text="Your stall will become visible and accept reservations after administrator approval."
-        />
-        <Link className="text-button" href="/student/profile">
-          Your account →
-        </Link>
-      </>
-    );
+  if (!stall || stall.approval_status !== 'approved') return null;
   return (
     <div className="seller-dashboard">
       <section className="seller-overview">

@@ -1,7 +1,37 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+async function signInStudent(page: Page) {
+  const { TEST_STUDENT_EMAIL: email, TEST_STUDENT_PASSWORD: password } = process.env;
+  test.skip(
+    !email || !password,
+    'Requires a test student account because browsing now requires sign-in.',
+  );
+  await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  await page.getByLabel('Email address', { exact: true }).fill(email!);
+  await page.getByLabel('Password', { exact: true }).fill(password!);
+  await page.getByRole('button', { name: 'Log In', exact: true }).click();
+  await expect(page).toHaveURL(/\/student\/home$/);
+}
+
+test('logged-out routes open Login first and retain Stall Portal navigation', async ({ page }) => {
+  for (const path of ['/', '/student/home', '/student/checkout']) {
+    await page.goto(path, { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByRole('button', { name: 'Log In', exact: true })).toBeVisible();
+  }
+  for (const path of ['/seller/dashboard', '/register/stall']) {
+    await page.goto(path, { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/\/login\?role=seller$/);
+  }
+  await page.getByRole('link', { name: 'Create Account' }).click();
+  await expect(page).toHaveURL(/\/register\?role=seller$/);
+  await page.getByRole('link', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL(/\/login\?role=seller$/);
+});
+
 test('browse, search, add a meal and review transparent checkout', async ({ page }) => {
-  await page.goto('/student/home', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('heading', { name: 'Hello, Centralian!' })).toBeVisible();
+  await signInStudent(page);
+  await expect(page.getByRole('heading', { name: /^Hello, / })).toBeVisible();
   await expect(page.getByRole('img', { name: 'CPUGrab campus banner' })).toBeVisible();
   await expect(page.locator('.dashboard-footer .footer-banner')).toBeVisible();
   await expect(page.getByText('Demo preview')).toBeVisible();
@@ -29,15 +59,15 @@ test('browse, search, add a meal and review transparent checkout', async ({ page
   await expect(page.getByRole('heading', { name: 'Your Order' })).toBeVisible();
   await expect(page.getByText('₱55', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Choose pickup time' }).click();
-  await expect(page.getByRole('link', { name: 'Sign in to reserve' })).toBeVisible();
-  await expect(page.getByText('Sign in to pay with GCash or CPUGrab Wallet.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Review and pay', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Payment method' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review and pay', exact: true })).toBeDisabled();
 });
-test('dashboard wallet opens cash-in and guest profile follows the responsive navigation', async ({
+test('dashboard wallet opens cash-in and Profile follows the responsive navigation', async ({
   page,
   isMobile,
 }) => {
-  await page.goto('/student/home', { waitUntil: 'domcontentloaded' });
+  await signInStudent(page);
+  await expect(page.getByRole('heading', { name: /^Hello, / })).toBeVisible();
   const wallet = page.getByRole('button', { name: 'Cash in to CPUGrab Wallet' });
   await expect(wallet).toBeVisible();
   const profile = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', {
@@ -45,7 +75,7 @@ test('dashboard wallet opens cash-in and guest profile follows the responsive na
   });
   const headerProfile = page
     .getByRole('banner')
-    .getByRole('link', { name: 'Sign in', exact: true });
+    .getByRole('link', { name: 'Your profile', exact: true });
   if (isMobile) {
     await expect(profile).toBeVisible();
     await expect(headerProfile).toBeHidden();
@@ -54,15 +84,16 @@ test('dashboard wallet opens cash-in and guest profile follows the responsive na
   }
   await wallet.click();
   const dialog = page.getByRole('dialog', { name: 'Cash In to Wallet' });
-  await expect(dialog.getByRole('link', { name: 'Sign in to cash in' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /Review cash in/ })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
   await expect(dialog).toBeHidden();
   if (isMobile) {
     await profile.click();
-    await expect(page.getByRole('heading', { name: 'Your campus account' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'A little about you' })).toBeVisible();
   }
 });
 test('location previews and mobile overflow stay usable', async ({ page }) => {
+  await signInStudent(page);
   await page.goto('/student/location/00000000-0000-4000-8000-000000000001', {
     waitUntil: 'domcontentloaded',
   });
@@ -80,15 +111,15 @@ test('auth rejects invalid input before contacting authentication', async ({ pag
   await page.getByRole('button', { name: 'Log In', exact: true }).click();
   await expect(page.getByText('Use at least 8 characters')).toBeVisible();
 });
-test('manifest contains installable icons and private navigation is not cached', async ({
-  page,
-  request,
-}) => {
+test('manifest starts on the gated home route and has installable icons', async ({ request }) => {
   const response = await request.get('/manifest.webmanifest');
   expect(response.ok()).toBeTruthy();
   const manifest = await response.json();
   expect(manifest.icons.some((i: { sizes: string }) => i.sizes === '512x512')).toBeTruthy();
-  await page.goto('/student/home', { waitUntil: 'domcontentloaded' });
+  expect(manifest.start_url).toBe('/');
+});
+test('private navigation is not cached', async ({ page }) => {
+  await signInStudent(page);
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
   await page.waitForFunction(() => Boolean(localStorage.getItem('cpugrab-public-catalog')));
   await page.goto('/student/orders', { waitUntil: 'domcontentloaded' });

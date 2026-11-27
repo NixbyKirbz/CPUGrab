@@ -19,6 +19,7 @@ import {
   ArrowUpRight,
   Search,
   Wallet,
+  Bike,
   X,
 } from 'lucide-react';
 import { useCart } from '@/stores/cart';
@@ -73,6 +74,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
             { label: 'Overview', href: '/admin', icon: LayoutDashboard },
             { label: 'Stalls', href: '/admin/stalls', icon: Store },
             { label: 'Locations', href: '/admin/locations', icon: MapPin },
+            { label: 'Deliveries', href: '/admin/delivery', icon: Bike },
             { label: 'Accounts', href: '/admin/accounts', icon: UserRound },
             { label: 'Settings', href: '/admin/settings', icon: Settings },
           ];
@@ -206,11 +208,11 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
               </Link>
             </div>
           )}
-          {role !== 'student' && loading ? (
+          {role === 'admin' && loading ? (
             <Loading />
-          ) : role !== 'student' && (!user || (accountRole !== role && accountRole !== 'admin')) ? (
+          ) : role === 'admin' && (!user || accountRole !== 'admin') ? (
             <Empty
-              title={`${role === 'seller' ? 'Stall partner' : 'Administrator'} access required`}
+              title="Administrator access required"
               text="Sign in with an authorized campus account to continue."
             >
               <Link className="primary-button" href="/login">

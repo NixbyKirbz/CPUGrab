@@ -21,6 +21,9 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
   const lines = useCart((s) => s.lines);
   const [hydrated, setHydrated] = useState(false);
   const [slot, setSlot] = useState('');
+  const [fulfillment, setFulfillment] = useState('');
+  const [deliveryMode, dropoff] = fulfillment.split(':');
+  const groupDelivery = deliveryMode === 'group';
   const [notes, setNotes] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
@@ -39,6 +42,21 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
   } = useQuery({ queryKey: ['catalog'], queryFn: fetchCatalog });
   const stallId = lines[0]?.stall_id;
   const walletBalance = useWalletBalance(checkout && role === 'student' ? user?.id : undefined);
+  const participating = data?.stalls.some(
+    (stall) => stall.id === stallId && stall.delivery_enabled,
+  );
+  const deliveryOptions = useQuery({
+    queryKey: ['delivery-options', user?.id, stallId, slot],
+    enabled: Boolean(user && checkout && participating && slot),
+    queryFn: async () => {
+      const [individual, group] = await Promise.all([
+        rpc<string[]>('delivery_options', { p_stall: stallId, p_slot: slot }),
+        rpc<string[]>('delivery_options', { p_stall: stallId, p_slot: slot, p_group: true }),
+      ]);
+      return { individual, group };
+    },
+    refetchInterval: 15_000,
+  });
   const {
     data: slots = [],
     isPending: slotsPending,
@@ -74,7 +92,22 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
     data.settings.default_markup_centavos,
   );
   const selected = slots.find((s) => s.id === slot);
-  const walletShort = walletBalance.data !== undefined && walletBalance.data < totals.total;
+  const individualFee = data.settings.delivery_fee_centavos ?? 0;
+  const groupFee = data.settings.group_delivery_fee_centavos ?? 0;
+  const deliveryFee = groupDelivery ? groupFee : individualFee;
+  const hasDelivery = Boolean(
+    deliveryOptions.data?.individual.length || deliveryOptions.data?.group.length,
+  );
+  const total = totals.total + (dropoff ? deliveryFee : 0);
+  const validFulfillment =
+    !dropoff ||
+    Boolean(
+      (groupDelivery ? deliveryOptions.data?.group : deliveryOptions.data?.individual)?.includes(
+        dropoff,
+      ),
+    );
+  const selectedDropoff = data.locations.find((item) => item.id === dropoff);
+  const walletShort = walletBalance.data !== undefined && walletBalance.data < total;
   const canPay =
     paymentMethod === 'gcash' ||
     (paymentMethod === 'wallet' && walletBalance.isSuccess && !walletShort);
@@ -84,20 +117,21 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
       return !current || !current.is_available || current.price_centavos !== l.price_centavos;
     }) || !stall?.is_open;
   const reserve = async () => {
-    if (!user || !selected || !canPay || !paymentMethod || invalid) return;
+    if (!user || !selected || !canPay || !paymentMethod || invalid || !validFulfillment) return;
     setBusy(true);
     setError(null);
     try {
       if (!navigator.onLine) throw new Error('Reconnect to confirm your reservation.');
       key.current ??= crypto.randomUUID();
-      const id = await rpc<string>('create_reservation', {
+      const id = await rpc<string>(dropoff ? 'create_delivery_reservation' : 'create_reservation', {
         p_stall: stallId,
         p_slot: slot,
         p_items: lines.map((l) => ({ id: l.id, quantity: l.quantity })),
         p_key: key.current,
         p_notes: notes,
         p_payment_method: paymentMethod,
-        p_total_centavos: totals.total,
+        p_total_centavos: total,
+        ...(dropoff ? { p_dropoff: dropoff, p_group: groupDelivery } : {}),
       });
       void query.invalidateQueries({ queryKey: walletBalanceKey });
       void query.invalidateQueries({ queryKey: ['orders'] });
@@ -107,6 +141,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
       setError(e);
       setConfirm(false);
       void refreshSlots();
+      void query.invalidateQueries({ queryKey: ['delivery-options'] });
       void query.invalidateQueries({ queryKey: ['catalog'] });
       void query.invalidateQueries({ queryKey: walletBalanceKey });
     } finally {
@@ -116,7 +151,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
   return (
     <div className="checkout-page">
       <PageTitle
-        title={checkout ? 'Pickup & Payment' : 'Your Order'}
+        title={checkout ? 'Order Options & Payment' : 'Your Order'}
         back={checkout ? '/student/cart' : `/student/stall/${stallId}`}
       />
       {Boolean(error) && <ErrorBox error={error} />}{' '}
@@ -188,9 +223,15 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
               <strong>{money(totals.adjustment)}</strong>
             </div>
           )}
+          {dropoff && (
+            <div className="detail-row">
+              <span>Campus delivery fee</span>
+              <strong>{money(deliveryFee)}</strong>
+            </div>
+          )}
           <div className="detail-row total-row">
             <span>Total</span>
-            <strong>{money(totals.total)}</strong>
+            <strong>{money(total)}</strong>
           </div>
           {checkout && (
             <section className="pickup-options">
@@ -211,6 +252,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
                       value={slot}
                       onChange={(e) => {
                         setSlot(e.target.value);
+                        setFulfillment('');
                         key.current = null;
                       }}
                       required
@@ -232,6 +274,51 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
                     </p>
                   )}
                 </>
+              )}
+              {slot && (hasDelivery || Boolean(dropoff)) && (
+                <label style={{ marginTop: 20 }}>
+                  How will you receive your order?
+                  <select
+                    value={fulfillment}
+                    onChange={(event) => {
+                      setFulfillment(event.target.value);
+                      key.current = null;
+                    }}
+                  >
+                    <option value="">Self-pickup</option>
+                    {!validFulfillment && (
+                      <option value={fulfillment} disabled>
+                        Delivery no longer available
+                      </option>
+                    )}
+                    {data.locations
+                      .filter((location) => deliveryOptions.data?.individual.includes(location.id))
+                      .map((location) => (
+                        <option key={location.id} value={`individual:${location.id}`}>
+                          Delivery to {location.name} · +{money(individualFee)}
+                        </option>
+                      ))}
+                    {data.locations
+                      .filter((location) => deliveryOptions.data?.group.includes(location.id))
+                      .map((location) => (
+                        <option key={`group:${location.id}`} value={`group:${location.id}`}>
+                          Group delivery to {location.name} · +{money(groupFee)}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
+              {participating && slot && deliveryOptions.isSuccess && !hasDelivery && (
+                <p className="help-text">
+                  Campus delivery is unavailable for this time. Choose self-pickup or another time.
+                </p>
+              )}
+              {dropoff && validFulfillment && (
+                <p className="notice">
+                  {groupDelivery
+                    ? 'At least two students must book the same stall, slot, and drop-off. You’ll receive an automatic simulated refund if the group fails to form or no worker accepts within the offer window.'
+                    : 'Delivery is confirmed when a worker accepts. If nobody accepts within three minutes, your simulated payment will be refunded automatically.'}
+                </p>
               )}
               <label style={{ marginTop: 20 }}>
                 Notes for the stall (optional)
@@ -290,7 +377,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
             user ? (
               <button
                 className="primary-button"
-                disabled={!selected || !canPay || invalid || busy}
+                disabled={!selected || !canPay || invalid || busy || !validFulfillment}
                 onClick={() => setConfirm(true)}
               >
                 <ShoppingBag size={17} />
@@ -339,15 +426,23 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
             <strong>{paymentMethodLabel[paymentMethod]}</strong>
           </div>
           <div className="detail-row total-row">
+            <span>Fulfillment</span>
+            <strong>
+              {selectedDropoff
+                ? `${groupDelivery ? 'Group delivery' : 'Delivery'} to ${selectedDropoff.name}`
+                : 'Self-pickup'}
+            </strong>
+          </div>
+          <div className="detail-row total-row">
             <span>Total Payment</span>
-            <strong>{money(totals.total)}</strong>
+            <strong>{money(total)}</strong>
           </div>
           <button
             className="primary-button full-width"
-            disabled={busy || !canPay}
+            disabled={busy || !canPay || !validFulfillment}
             onClick={() => void reserve()}
           >
-            <Busy busy={busy}>Pay {money(totals.total)}</Busy>
+            <Busy busy={busy}>Pay {money(total)}</Busy>
           </button>
           <button
             className="secondary-button full-width"

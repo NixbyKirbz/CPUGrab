@@ -9,10 +9,8 @@ import { useSession } from './providers';
 import { useCart } from '@/stores/cart';
 import { PageTitle, Empty, ErrorBox, Busy, Modal, Loading } from './ui';
 import { Install } from './install';
-import { useRouter } from 'next/navigation';
 export function Profile() {
   const { user, role, toast } = useSession();
-  const router = useRouter();
   const query = useQueryClient();
   const [help, setHelp] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -181,6 +179,12 @@ export function Profile() {
               </Link>
             )}
             {role === 'student' && (
+              <Link href="/student/delivery">
+                <span>Campus delivery work</span>
+                <ChevronRight size={16} />
+              </Link>
+            )}
+            {role === 'student' && (
               <Link href="/register/stall">
                 <span>
                   <Store size={16} style={{ display: 'inline', marginRight: 8 }} />
@@ -205,8 +209,7 @@ export function Profile() {
                 await getSupabase().auth.signOut();
                 useCart.getState().scope('guest');
                 query.clear();
-                router.push('/student/home');
-                router.refresh();
+                window.location.replace('/login');
               }}
             >
               <span>

@@ -334,6 +334,297 @@ describe('Database authorization and atomic lifecycle', () => {
       db.query('select public.set_account_suspension($1,true)', [seller]),
     ).rejects.toThrow('Not authorized');
   });
+  it('keeps a submitted stall pending until an administrator approves it', async () => {
+    const applicant = '71111111-1111-4111-8111-111111111111';
+    await owner();
+    await db.query('insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)', [
+      applicant,
+      'stall-applicant@example.com',
+      JSON.stringify({ full_name: 'Stall Applicant', account_type: 'seller' }),
+    ]);
+    await as(applicant);
+    const {
+      rows: [{ id }],
+    } = await db.query<{ id: string }>(
+      "select public.register_seller('New Stall',(select id from public.locations limit 1),'09123456789','https://example.com/stall.png') as id",
+    );
+    const canManage = async () =>
+      (await db.query<{ allowed: boolean }>('select public.can_manage_stall($1) as allowed', [id]))
+        .rows[0].allowed;
+    expect(await canManage()).toBe(false);
+    expect(
+      (await db.query('select approval_status from public.stalls where id=$1', [id])).rows[0],
+    ).toEqual({ approval_status: 'pending' });
+    await expect(
+      db.query("select public.manage_seller_approval($1,'approved')", [id]),
+    ).rejects.toThrow('Not authorized');
+    await as(admin);
+    await db.query("select public.manage_seller_approval($1,'approved')", [id]);
+    await as(applicant);
+    expect(await canManage()).toBe(true);
+  });
+  it('holds a worker for paid campus delivery and uses different single-use pickup and handover codes', async () => {
+    await owner();
+    await db.query(
+      "update public.stalls set delivery_enabled=true, delivery_closes_at='23:59' where id=$1",
+      [stall],
+    );
+    const {
+      rows: [{ id: dropoff }],
+    } = await db.query<{ id: string }>(
+      'update public.locations set is_delivery_dropoff=true where id=(select id from public.locations limit 1) returning id',
+    );
+    const {
+      rows: [{ id: deliverySlot }],
+    } = await db.query<{ id: string }>(
+      "insert into public.pickup_slots(stall_id,start_time,end_time,max_reservations) values($1,now()+interval '10 minutes',now()+interval '30 minutes',3) returning id",
+      [stall],
+    );
+    const options = async () =>
+      (
+        await db.query<{ ids: string[] }>('select public.delivery_options($1,$2) as ids', [
+          stall,
+          deliverySlot,
+        ])
+      ).rows[0].ids;
+    await as(student);
+    expect(await options()).toEqual([]);
+    await as(other);
+    await db.query("select public.apply_delivery_worker('09123456789','DEMO-ID')");
+    await expect(
+      db.query(
+        "select public.set_delivery_availability(now()+interval '1 hour',null,'{}'::uuid[])",
+      ),
+    ).rejects.toThrow('approved first');
+    await as(admin);
+    await db.query("select public.review_delivery_worker($1,'approved')", [other]);
+    await as(other);
+    await db.query(
+      "select public.set_delivery_availability(now()+interval '1 hour',null,'{}'::uuid[])",
+    );
+    await as(student);
+    expect(await options()).toEqual([dropoff]);
+    const place = async (key: string, method = 'gcash') =>
+      (
+        await db.query<{ id: string }>(
+          "select public.create_delivery_reservation($1,$2,$3::jsonb,$4,'delivery',$5,10000,$6) as id",
+          [stall, deliverySlot, JSON.stringify([{ id: item, quantity: 1 }]), key, method, dropoff],
+        )
+      ).rows[0].id;
+    const key = crypto.randomUUID();
+    const id = await place(key);
+    expect(await place(key)).toBe(id);
+    expect(await options()).toEqual([]);
+    await expect(place(crypto.randomUUID())).rejects.toThrow('No delivery worker');
+    await expect(db.query('select public.issue_pickup_token($1)', [id])).rejects.toThrow(
+      'customer handover',
+    );
+    const step = async (action: string, code?: string, orderId = id) =>
+      (
+        await db.query<{ result: string }>('select public.delivery_action($1,$2,$3) as result', [
+          orderId,
+          action,
+          code ?? null,
+        ])
+      ).rows[0].result;
+    const credentials = async (stage: string) =>
+      (
+        await db.query<{ codes: { pin: string; qr: string } }>(
+          'select public.delivery_credentials($1,$2) as codes',
+          [id, stage],
+        )
+      ).rows[0].codes;
+    await expect(step('accept')).rejects.toThrow('approved delivery worker');
+    await as(seller);
+    await expect(db.query('select public.mark_order_ready($1)', [id])).rejects.toThrow(
+      /wait for the delivery worker/i,
+    );
+    await as(other);
+    expect(await step('accept')).toBe('ok');
+    await expect(step('accept')).rejects.toThrow('no longer available');
+    const pickup = await credentials('pickup');
+    expect(pickup.pin).toMatch(/^\d{6}$/);
+    await expect(credentials('handover')).rejects.toThrow('unavailable');
+    await as(seller);
+    await db.query('select public.mark_order_ready($1)', [id]);
+    expect(await step('collect', 'incorrect')).toBe('invalid_code');
+    expect(await step('collect', pickup.pin)).toBe('ok');
+    expect((await db.query('select status from public.orders where id=$1', [id])).rows[0]).toEqual({
+      status: 'ready',
+    });
+    await expect(step('collect', pickup.pin)).rejects.toThrow('pickup window');
+    await as(other);
+    expect(await step('start')).toBe('ok');
+    expect(await step('arrive')).toBe('ok');
+    await as(student);
+    const handover = await credentials('handover');
+    expect(handover.pin).not.toBe(pickup.pin);
+    expect(handover.qr).toContain('delivery-handover');
+    await as(other);
+    expect(await step('handover', pickup.pin)).toBe('invalid_code');
+    expect(await step('handover', handover.qr.split(':').at(-1))).toBe('ok');
+    await expect(step('handover', handover.pin)).rejects.toThrow('unavailable');
+    expect(
+      (
+        await db.query(
+          'select phase,worker_earnings_centavos from public.deliveries where order_id=$1',
+          [id],
+        )
+      ).rows[0],
+    ).toEqual({ phase: 'completed', worker_earnings_centavos: 1500 });
+
+    await as(student);
+    const {
+      rows: [{ previous }],
+    } = await db.query<{ previous: number }>(
+      'select public.simulated_wallet_balance() as previous',
+    );
+    const unaccepted = await place(crypto.randomUUID(), 'wallet');
+    await owner();
+    await db.query(
+      "update public.deliveries set offer_expires_at=now()-interval '1 second' where order_id=$1",
+      [unaccepted],
+    );
+    await db.exec(
+      'select cpugrab_private.expire_delivery_offers(); select cpugrab_private.expire_delivery_offers();',
+    );
+    await as(student);
+    expect(
+      (await db.query('select status,payment_status from public.orders where id=$1', [unaccepted]))
+        .rows[0],
+    ).toEqual({ status: 'cancelled', payment_status: 'refunded' });
+    expect(
+      (await db.query('select public.simulated_wallet_balance() as previous')).rows[0],
+    ).toEqual({ previous });
+  });
+  it('groups compatible bookings for one worker and still verifies each handover separately', async () => {
+    const third = '77111111-1111-4111-8111-111111111111';
+    await owner();
+    await db.query('insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)', [
+      third,
+      'group-customer@example.com',
+      '{"full_name":"Group Customer","student_id":"GROUP-TEST"}',
+    ]);
+    await db.query('update public.menu_items set stock_quantity=10 where id=$1', [item]);
+    const {
+      rows: [{ id: groupSlot }],
+    } = await db.query<{ id: string }>(
+      "insert into public.pickup_slots(stall_id,start_time,end_time,max_reservations) values($1,now()+interval '10 minutes',now()+interval '30 minutes',4) returning id",
+      [stall],
+    );
+    const {
+      rows: [{ id: dropoff }],
+    } = await db.query<{ id: string }>(
+      'select id from public.locations where is_delivery_dropoff limit 1',
+    );
+    const book = async () =>
+      (
+        await db.query<{ id: string }>(
+          "select public.create_delivery_reservation($1,$2,$3::jsonb,$4,'group','gcash',9500,$5,true) as id",
+          [
+            stall,
+            groupSlot,
+            JSON.stringify([{ id: item, quantity: 1 }]),
+            crypto.randomUUID(),
+            dropoff,
+          ],
+        )
+      ).rows[0].id;
+    const step = async (orderId: string, action: string, code?: string) =>
+      (
+        await db.query<{ result: string }>('select public.delivery_action($1,$2,$3) as result', [
+          orderId,
+          action,
+          code ?? null,
+        ])
+      ).rows[0].result;
+    const code = async (orderId: string, stage: string) =>
+      (
+        await db.query<{ codes: { pin: string; qr: string } }>(
+          'select public.delivery_credentials($1,$2) as codes',
+          [orderId, stage],
+        )
+      ).rows[0].codes;
+    await as(student);
+    const first = await book();
+    await as(other);
+    await expect(step(first, 'accept')).rejects.toThrow('At least two students');
+    await as(third);
+    expect(
+      (await db.query('select public.delivery_options($1,$2,true) as ids', [stall, groupSlot]))
+        .rows[0],
+    ).toEqual({ ids: [dropoff] });
+    const second = await book();
+    await as(other);
+    expect(await step(second, 'accept')).toBe('ok');
+    const { rows: assigned } = await db.query<{
+      group_id: string;
+      phase: string;
+      compensation_centavos: number;
+    }>(
+      'select group_id,phase,compensation_centavos from public.deliveries where order_id in ($1,$2)',
+      [first, second],
+    );
+    expect(assigned).toHaveLength(2);
+    expect(assigned[0]).toEqual(assigned[1]);
+    expect(assigned[0]).toMatchObject({ phase: 'assigned', compensation_centavos: 1000 });
+    const pickup1 = await code(first, 'pickup');
+    const pickup2 = await code(second, 'pickup');
+    await as(seller);
+    await db.query('select public.mark_order_ready($1)', [first]);
+    await db.query('select public.mark_order_ready($1)', [second]);
+    expect(await step(first, 'collect', pickup1.pin)).toBe('ok');
+    expect(await step(second, 'collect', pickup2.pin)).toBe('ok');
+    await as(other);
+    for (const id of [first, second]) {
+      expect(await step(id, 'start')).toBe('ok');
+      expect(await step(id, 'arrive')).toBe('ok');
+    }
+    await as(student);
+    const handover = await code(first, 'handover');
+    await expect(code(second, 'handover')).rejects.toThrow('unavailable');
+    await as(other);
+    expect(await step(first, 'handover', handover.pin)).toBe('ok');
+    expect(
+      (
+        await db.query(
+          'select phase,worker_earnings_centavos from public.deliveries where order_id=$1',
+          [second],
+        )
+      ).rows[0],
+    ).toEqual({ phase: 'arrived', worker_earnings_centavos: 0 });
+    await owner();
+    await db.query(
+      "update public.deliveries set wait_until=now()-interval '1 second' where order_id=$1",
+      [second],
+    );
+    await as(other);
+    expect(
+      await step(second, 'report_issue', 'Called the customer and waited at the drop-off.'),
+    ).toBe('ok');
+    await expect(
+      db.query("select public.resolve_delivery_issue($1,true,true,'Reviewed handover attempts')", [
+        second,
+      ]),
+    ).rejects.toThrow('Administrator');
+    await as(admin);
+    await db.query(
+      "select public.resolve_delivery_issue($1,true,true,'Reviewed handover attempts')",
+      [second],
+    );
+    expect(
+      (await db.query('select status,payment_status from public.orders where id=$1', [second]))
+        .rows[0],
+    ).toEqual({ status: 'cancelled', payment_status: 'refunded' });
+    expect(
+      (
+        await db.query(
+          'select phase,worker_earnings_centavos from public.deliveries where order_id=$1',
+          [second],
+        )
+      ).rows[0],
+    ).toEqual({ phase: 'unsuccessful', worker_earnings_centavos: 1000 });
+  });
   it('suspension prevents protected operations', async () => {
     await as(admin);
     await db.query('select public.set_account_suspension($1,true)', [student]);

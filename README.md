@@ -13,13 +13,14 @@ Copy-Item .env.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Without Supabase configuration, the app displays a clearly labeled demonstration catalog. Browsing, search, filters, and the local cart work; accounts, persisted favorites, seller changes, and confirmed reservations require Supabase. Demo mode never simulates a completed database transaction.
+Open [http://localhost:3000](http://localhost:3000) and sign in. Supabase configuration is required for accounts and campus browsing. Seeded listings are labeled as demo content.
 
 ## What’s included
 
 - Student location browsing with horizontal stall menu previews, global debounced search, category/location/price filters, food details and favorites.
 - Single-stall Zustand cart scoped to the current account, transparent centavo pricing, pickup slots, simulated GCash and CPUGrab Wallet checkout, orders and private QR codes.
 - Email/password accounts, verification, password recovery, seller applications, cookie session refresh and role navigation.
+- Individual and group delivery to approved campus drop-off points, with student worker applications, administrator approval, separate pickup and handover credentials, and simulated earnings.
 - Seller dashboard, optimistic image availability toggles, grayscale unavailable images, explicit menu edit mode, Storage image uploads, archive, schedules, ready/cancel actions, camera scanning and manual secure-token fallback.
 - Administrator approval, stall suspension, location management, account suspension and fee configuration.
 - PostgreSQL RLS, atomic reservation and QR redemption functions, idempotency, stock and slot locks, pricing snapshots, token hashes, order history and in-app notifications.
@@ -50,6 +51,8 @@ Open [http://localhost:3000](http://localhost:3000). Without Supabase configurat
    Migrations create tables, RPCs, RLS policies, the public `campus-images` bucket (5 MB, JPG/PNG/WebP), and Realtime publication entries. If your project already has tables with these names, review migrations before applying them.
 
 3. For development only, run `supabase/seed.sql` in SQL Editor. Seed data is explicitly illustrative; stall rows retain `is_demo=true`, which keeps the demo label visible even after connection. Stock images are illustrative and not verified photos of CPU campus locations or named foods. Do not seed unverified listings into a public production launch.
+
+   To offer campus delivery, mark an active location as an approved drop-off point in Admin → Locations. An approved stall must enable delivery in Stall Portal → Settings and publish a pickup slot within its delivery hours. An administrator approves student worker applications in Admin → Deliveries, then workers set their availability from Profile → Campus delivery work.
 
 4. In **Authentication → URL Configuration**, set the Site URL and allow:
 

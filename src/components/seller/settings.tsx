@@ -1,7 +1,6 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useStall } from './context';
 import { getSupabase } from '@/lib/supabase/client';
@@ -14,7 +13,6 @@ import { day, time } from '@/lib/format';
 import type { Location } from '@/types';
 export function StallApplication() {
   const { user, loading } = useSession();
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const { data: locations = [] } = useQuery({
@@ -32,15 +30,9 @@ export function StallApplication() {
   if (loading) return <Loading />;
   if (!user)
     return (
-      <Empty
-        title="First, your campus account"
-        text="Verify your email and sign in before submitting a stall application."
-      >
-        <Link className="primary-button" href="/register?role=seller">
-          Create a seller account
-        </Link>
-        <Link className="text-button" href="/login">
-          Already registered? Sign in
+      <Empty title="Continue to Stall Portal" text="Sign in to continue your stall application.">
+        <Link className="primary-button" href="/login?role=seller">
+          Sign in to Stall Portal
         </Link>
       </Empty>
     );
@@ -67,8 +59,7 @@ export function StallApplication() {
                 p_contact: f.get('contact'),
                 p_image: image,
               });
-              router.push('/seller/dashboard');
-              router.refresh();
+              window.location.replace('/seller/dashboard');
             } catch (e) {
               setError(e);
             } finally {
@@ -170,6 +161,8 @@ export function SellerSettings() {
                     description: String(f.get('description')),
                     contact_number: String(f.get('contact')),
                     opening_hours: String(f.get('hours')),
+                    delivery_enabled: f.has('delivery'),
+                    delivery_closes_at: f.get('delivery-closes'),
                     image_url: image,
                     cover_image_url: image,
                   })
@@ -201,6 +194,19 @@ export function SellerSettings() {
             <label>
               Opening hours
               <input name="hours" defaultValue={stall.opening_hours} required maxLength={120} />
+            </label>
+            <label className="check-label">
+              <input type="checkbox" name="delivery" defaultChecked={stall.delivery_enabled} />
+              Offer campus delivery
+            </label>
+            <label>
+              Delivery cutoff (Manila time)
+              <input
+                type="time"
+                name="delivery-closes"
+                defaultValue={stall.delivery_closes_at?.slice(0, 5) ?? '17:00'}
+                required
+              />
             </label>
             <label>
               Stall photo

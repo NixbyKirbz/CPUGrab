@@ -782,6 +782,35 @@ strong {
 .full-width {
   width: 100%;
 }
+.delivery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(275px, 100%), 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.delivery-tabs {
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.delivery-tabs button[aria-pressed='true'] {
+  border-color: var(--gold);
+  background: #fff8e0;
+}
+.delivery-checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+.delivery-checkbox input {
+  width: auto;
+  min-height: 0;
+  accent-color: var(--navy);
+}
+.delivery-code {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
 .text-button {
   font-weight: 600;
   color: var(--navy);

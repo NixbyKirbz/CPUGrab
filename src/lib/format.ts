@@ -1,4 +1,16 @@
-import type { Order } from '@/types';
+import type { DeliveryPhase, Order } from '@/types';
+
+export const deliveryLabel = {
+  pending: 'Waiting for a worker',
+  assigned: 'Worker assigned',
+  collected: 'Collected by delivery worker',
+  on_the_way: 'On the way',
+  arrived: 'At the drop-off point',
+  completed: 'Delivered',
+  cancelled: 'Delivery cancelled',
+  handover_issue: 'Handover under review',
+  unsuccessful: 'Delivery unsuccessful',
+} satisfies Record<DeliveryPhase, string>;
 
 export const paymentMethodLabel = {
   gcash: 'GCash',
