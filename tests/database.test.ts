@@ -19,10 +19,16 @@ async function as(id: string) {
 async function owner() {
   await db.exec('reset role');
 }
-async function create(key = crypto.randomUUID(), qty = 1, pickupSlot = slot) {
+async function create(
+  key = crypto.randomUUID(),
+  qty = 1,
+  pickupSlot = slot,
+  method = 'gcash',
+  total = 8500,
+) {
   const r = await db.query<{ id: string }>(
-    "select public.create_reservation($1,$2,$3::jsonb,$4,'test') as id",
-    [stall, pickupSlot, JSON.stringify([{ id: item, quantity: qty }]), key],
+    "select public.create_reservation($1,$2,$3::jsonb,$4,'test',$5,$6) as id",
+    [stall, pickupSlot, JSON.stringify([{ id: item, quantity: qty }]), key, method, total],
   );
   return r.rows[0].id;
 }
@@ -183,7 +189,7 @@ describe('Database authorization and atomic lifecycle', () => {
       (await db.query("select * from public.notifications where title='Your meal is ready!'")).rows,
     ).toHaveLength(1);
   });
-  it('rotates a token, requires actual cash acknowledgment, and rejects duplicate scans', async () => {
+  it('rotates a token, redeems a prepaid order, and rejects duplicate scans', async () => {
     await as(student);
     const t = await db.query<{ token: string }>('select public.issue_pickup_token($1) as token', [
       order,
@@ -195,16 +201,13 @@ describe('Database authorization and atomic lifecycle', () => {
     expect(token).toHaveLength(64);
     expect(token).not.toBe(old);
     await as(other);
-    await expect(db.query('select public.redeem_pickup_token($1,true)', [token])).rejects.toThrow();
+    await expect(db.query('select public.redeem_pickup_token($1)', [token])).rejects.toThrow();
     await as(seller);
-    await expect(db.query('select public.redeem_pickup_token($1,true)', [old])).rejects.toThrow(
+    await expect(db.query('select public.redeem_pickup_token($1)', [old])).rejects.toThrow(
       'Invalid',
     );
-    await expect(db.query('select public.redeem_pickup_token($1,false)', [token])).rejects.toThrow(
-      'Acknowledge',
-    );
-    await db.query('select public.redeem_pickup_token($1,true)', [token]);
-    await expect(db.query('select public.redeem_pickup_token($1,true)', [token])).rejects.toThrow(
+    await db.query('select public.redeem_pickup_token($1)', [token]);
+    await expect(db.query('select public.redeem_pickup_token($1)', [token])).rejects.toThrow(
       'used',
     );
     await as(student);
@@ -222,11 +225,98 @@ describe('Database authorization and atomic lifecycle', () => {
     const id = r.rows[0].id;
     await expect(db.query('select public.cancel_order($1,$2)', [id, ''])).rejects.toThrow('reason');
     await db.query('select public.cancel_order($1,$2)', [id, 'Food item unavailable']);
+    expect(
+      (await db.query('select payment_method, payment_status from public.orders where id=$1', [id]))
+        .rows[0],
+    ).toEqual({ payment_method: 'gcash', payment_status: 'refunded' });
     await expect(
       db.query('select public.cancel_order($1,$2)', [id, 'Food item unavailable']),
     ).rejects.toThrow('cannot');
     await as(other);
     expect(await create()).toBeTruthy();
+  });
+  it('credits, charges and refunds only the owner’s simulated wallet exactly once', async () => {
+    await owner();
+    const {
+      rows: [walletSlot],
+    } = await db.query<{ id: string }>(
+      `insert into public.pickup_slots(stall_id,start_time,end_time,max_reservations)
+       values($1,now()+interval '20 minutes',now()+interval '40 minutes',1) returning id`,
+      [stall],
+    );
+    const getBalance = async () =>
+      Number(
+        (await db.query<{ balance: number }>('select public.simulated_wallet_balance() as balance'))
+          .rows[0].balance,
+      );
+    const cashInKey = crypto.randomUUID();
+    const cashIn = (amount: number) =>
+      db.query('select public.simulate_wallet_cash_in($1,$2)', [amount, cashInKey]);
+    await as(student);
+    expect(await getBalance()).toBe(0);
+    await expect(create(crypto.randomUUID(), 1, walletSlot.id, 'cash')).rejects.toThrow(
+      'Choose GCash',
+    );
+    await expect(create(crypto.randomUUID(), 1, walletSlot.id, 'wallet')).rejects.toThrow(
+      'Insufficient',
+    );
+    await expect(cashIn(-100)).rejects.toThrow('cash-in amount');
+    await cashIn(10000);
+    await cashIn(10000);
+    await expect(cashIn(5000)).rejects.toThrow('different amount');
+    expect(await getBalance()).toBe(10000);
+    await expect(create(crypto.randomUUID(), 1, walletSlot.id, 'wallet', 1)).rejects.toThrow(
+      'total has changed',
+    );
+    expect(await getBalance()).toBe(10000);
+
+    const orderKey = crypto.randomUUID();
+    const id = await create(orderKey, 1, walletSlot.id, 'wallet');
+    expect(await create(orderKey, 1, walletSlot.id, 'wallet')).toBe(id);
+    expect(await getBalance()).toBe(1500);
+    await as(other);
+    expect(await getBalance()).toBe(0);
+    await expect(
+      db.exec('select * from cpugrab_private.simulated_wallet_entries'),
+    ).rejects.toThrow();
+    await as(seller);
+    await expect(cashIn(10000)).rejects.toThrow('active student');
+    await as(student);
+    await db.query("select public.cancel_order($1,'Customer request')", [id]);
+    await expect(
+      db.query("select public.cancel_order($1,'Customer request')", [id]),
+    ).rejects.toThrow('cannot');
+    expect(await getBalance()).toBe(10000);
+  });
+  it('keeps pre-existing unpaid orders from being released at pickup', async () => {
+    await owner();
+    const {
+      rows: [legacy],
+    } = await db.query<{ id: string }>(
+      `insert into public.orders (
+         student_id, stall_id, pickup_slot_id, idempotency_key, payment_method, payment_status,
+         subtotal_centavos, markup_centavos, reservation_fee_centavos, stall_fee_share_centavos,
+         platform_fee_share_centavos, total_centavos
+       ) select student_id, stall_id, pickup_slot_id, gen_random_uuid(), 'cash', 'unpaid',
+         subtotal_centavos, markup_centavos, reservation_fee_centavos, stall_fee_share_centavos,
+         platform_fee_share_centavos, total_centavos
+       from public.orders where id=$1 returning id`,
+      [order],
+    );
+    const token = '1'.repeat(64);
+    await db.query(
+      `insert into public.pickup_tokens (order_id, token_hash, expires_at)
+       values ($1, encode(extensions.digest($2::text,'sha256'),'hex'), now()+interval '1 hour')`,
+      [legacy.id, token],
+    );
+    await as(student);
+    await expect(db.query('select public.issue_pickup_token($1)', [legacy.id])).rejects.toThrow(
+      'Payment is required',
+    );
+    await as(seller);
+    await expect(db.query('select public.redeem_pickup_token($1)', [token])).rejects.toThrow(
+      'Payment is required',
+    );
   });
   it('prevents fee, approval, and suspension privilege escalation', async () => {
     await as(student);

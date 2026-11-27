@@ -1,12 +1,10 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
-import { Check, ScanLine, Camera, CameraOff, Banknote } from 'lucide-react';
+import { Check, ScanLine, Camera, CameraOff } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { rpc } from '@/services/catalog';
-import { money } from '@/lib/format';
-import { PageTitle, ErrorBox, Busy, Modal } from '@/components/ui';
-type Pickup = { id: string; order_number: string; payment_status: string; total_centavos: number };
+import { PageTitle, ErrorBox, Busy } from '@/components/ui';
 export function Scanner() {
   const query = useQueryClient();
   const video = useRef<HTMLVideoElement>(null);
@@ -19,7 +17,6 @@ export function Scanner() {
   const [cameraError, setCameraError] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [token, setToken] = useState('');
-  const [cash, setCash] = useState<{ order: Pickup; token: string } | null>(null);
   const [completed, setCompleted] = useState('');
   const [busy, setBusy] = useState(false);
   const stop = useCallback(() => {
@@ -37,11 +34,10 @@ export function Scanner() {
       void sound.current?.close();
     };
   }, []);
-  const finish = async (raw: string, paid: boolean) => {
-    const order = await rpc<Pickup>('redeem_pickup_token', { p_token: raw, p_cash_received: paid });
+  const finish = async (raw: string) => {
+    const order = await rpc<{ order_number: string }>('redeem_pickup_token', { p_token: raw });
     if (!mounted.current) return;
     setCompleted(order.order_number);
-    setCash(null);
     stop();
     navigator.vibrate?.([80, 50, 80]);
     if (sound.current?.state === 'running') {
@@ -57,7 +53,7 @@ export function Scanner() {
     }
     await query.invalidateQueries({ queryKey: ['orders'] });
   };
-  const inspect = async (raw: string) => {
+  const verify = async (raw: string) => {
     if (locking.current) return;
     locking.current = true;
     setBusy(true);
@@ -65,10 +61,8 @@ export function Scanner() {
     const clean = raw.trim().replace(/^cpugrab:pickup:/, '');
     try {
       if (!/^[a-f0-9]{64}$/i.test(clean)) throw new Error('That is not a CPUGrab pickup code.');
-      const order = await rpc<Pickup>('inspect_pickup_token', { p_token: clean });
       stop();
-      if (order.payment_status === 'unpaid') setCash({ order, token: clean });
-      else await finish(clean, false);
+      await finish(clean);
     } catch (e) {
       if (mounted.current) setError(e);
     } finally {
@@ -97,7 +91,7 @@ export function Scanner() {
         { video: { facingMode: { ideal: 'environment' } }, audio: false },
         video.current!,
         (result) => {
-          if (result && cameraRequested.current && !locking.current) void inspect(result.getText());
+          if (result && cameraRequested.current && !locking.current) void verify(result.getText());
         },
       );
       if (!mounted.current || !cameraRequested.current) stream.stop();
@@ -176,7 +170,7 @@ export function Scanner() {
           style={{ marginTop: 22 }}
           onSubmit={(e) => {
             e.preventDefault();
-            void inspect(token);
+            void verify(token);
           }}
         >
           <h2 style={{ marginBottom: 0 }}>Enter a pickup code</h2>
@@ -196,49 +190,10 @@ export function Scanner() {
             <Busy busy={busy}>Verify pickup code</Busy>
           </button>
           <p className="help-text">
-            Order numbers alone cannot be used to claim an order. Cash must be received before
-            completing pickup.
+            Use the student’s private code to complete a paid reservation.
           </p>
         </form>
       </section>
-      {cash && (
-        <Modal
-          title="Cash received?"
-          onClose={() => {
-            if (!busy) setCash(null);
-          }}
-        >
-          <div className="payment-info">
-            <Banknote size={30} />
-            <div>
-              <strong>#{cash.order.order_number}</strong>
-              <small>Collect {money(cash.order.total_centavos)} in cash from the student.</small>
-            </div>
-          </div>
-          <p className="help-text" style={{ margin: '20px 0' }}>
-            Confirm only after you receive the full payment. The pickup will then complete
-            automatically.
-          </p>
-          <button
-            className="primary-button full-width"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              setError(null);
-              try {
-                await finish(cash.token, true);
-              } catch (e) {
-                setError(e);
-                setCash(null);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <Busy busy={busy}>I received {money(cash.order.total_centavos)} in cash</Busy>
-          </button>
-        </Modal>
-      )}
     </>
   );
 }

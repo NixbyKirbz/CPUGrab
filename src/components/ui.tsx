@@ -1,7 +1,7 @@
 'use client';
 import { X, ArrowLeft, LoaderCircle, Minus, Plus, AlertCircle, Check } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 export function PageTitle({
   title,
   subtitle,
@@ -101,12 +101,15 @@ export function Modal({
   title,
   children,
   onClose,
+  className = '',
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
@@ -119,14 +122,18 @@ export function Modal({
   return (
     <dialog
       ref={ref}
-      className="modal"
-      onCancel={onClose}
+      className={`modal ${className}`}
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div className="modal-head">
-        <h2>{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <button className="icon-button" aria-label="Close dialog" onClick={onClose}>
           <X size={22} />
         </button>

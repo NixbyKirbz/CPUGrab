@@ -1,23 +1,30 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ShoppingBag, Banknote, Trash2, CalendarDays, CalendarCheck } from 'lucide-react';
+import { ShoppingBag, Trash2, CalendarDays, CalendarCheck } from 'lucide-react';
 import { useCart } from '@/stores/cart';
 import { fetchCatalog, rpc } from '@/services/catalog';
-import { money, time, cartTotals } from '@/lib/format';
+import { money, time, cartTotals, paymentMethodLabel } from '@/lib/format';
 import { useSession } from '@/components/providers';
 import { PageTitle, Empty, Quantity, Loading, ErrorBox, Modal, Busy } from '@/components/ui';
-import type { Slot } from '@/types';
+import type { PaymentMethod, Slot } from '@/types';
+import { useWalletBalance, WalletCashIn, walletBalanceKey } from './wallet-cash-in';
+
+const paymentMethods = ['wallet', 'gcash'] satisfies PaymentMethod[];
+
 export function Checkout({ checkout = false }: { checkout?: boolean }) {
   const router = useRouter();
-  const { user } = useSession();
+  const query = useQueryClient();
+  const { user, role } = useSession();
   const lines = useCart((s) => s.lines);
   const [hydrated, setHydrated] = useState(false);
   const [slot, setSlot] = useState('');
   const [notes, setNotes] = useState('');
   const [confirm, setConfirm] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
+  const [cashIn, setCashIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const key = useRef<string | null>(null);
@@ -31,6 +38,7 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
     error: catalogError,
   } = useQuery({ queryKey: ['catalog'], queryFn: fetchCatalog });
   const stallId = lines[0]?.stall_id;
+  const walletBalance = useWalletBalance(checkout && role === 'student' ? user?.id : undefined);
   const {
     data: slots = [],
     isPending: slotsPending,
@@ -66,13 +74,17 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
     data.settings.default_markup_centavos,
   );
   const selected = slots.find((s) => s.id === slot);
+  const walletShort = walletBalance.data !== undefined && walletBalance.data < totals.total;
+  const canPay =
+    paymentMethod === 'gcash' ||
+    (paymentMethod === 'wallet' && walletBalance.isSuccess && !walletShort);
   const invalid =
     lines.some((l) => {
       const current = data.items.find((i) => i.id === l.id);
       return !current || !current.is_available || current.price_centavos !== l.price_centavos;
     }) || !stall?.is_open;
   const reserve = async () => {
-    if (!user || !selected) return;
+    if (!user || !selected || !canPay || !paymentMethod || invalid) return;
     setBusy(true);
     setError(null);
     try {
@@ -84,13 +96,19 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
         p_items: lines.map((l) => ({ id: l.id, quantity: l.quantity })),
         p_key: key.current,
         p_notes: notes,
+        p_payment_method: paymentMethod,
+        p_total_centavos: totals.total,
       });
+      void query.invalidateQueries({ queryKey: walletBalanceKey });
+      void query.invalidateQueries({ queryKey: ['orders'] });
       useCart.getState().clear();
       router.push(`/student/order/${id}?confirmed=1`);
     } catch (e) {
       setError(e);
       setConfirm(false);
       void refreshSlots();
+      void query.invalidateQueries({ queryKey: ['catalog'] });
+      void query.invalidateQueries({ queryKey: walletBalanceKey });
     } finally {
       setBusy(false);
     }
@@ -220,28 +238,63 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
                 <textarea
                   value={notes}
                   maxLength={500}
-                  onChange={(e) => setNotes(e.target.value)}
+                  onChange={(e) => {
+                    setNotes(e.target.value);
+                    key.current = null;
+                  }}
                   placeholder="Anything the stall should know?"
                 />
               </label>
             </section>
           )}
-          <div className="payment-info" style={{ marginTop: 20 }}>
-            <Banknote size={24} />
-            <div>
-              <strong>Cash upon pickup</strong>
-              <small>Pay the stall when you claim your meal.</small>
-            </div>
-          </div>
+          {checkout && user && role === 'student' && (
+            <fieldset className="checkout-payment">
+              <legend>Payment method</legend>
+              {paymentMethods.map((method) => (
+                <label className="payment-option" key={method}>
+                  <input
+                    type="radio"
+                    name="payment-method"
+                    value={method}
+                    checked={paymentMethod === method}
+                    disabled={busy}
+                    onChange={() => {
+                      setPaymentMethod(method);
+                      key.current = null;
+                    }}
+                  />
+                  <span>
+                    <strong>{paymentMethodLabel[method]}</strong>
+                    {method === 'wallet' && walletBalance.data !== undefined && (
+                      <small>Balance {money(walletBalance.data)}</small>
+                    )}
+                  </span>
+                </label>
+              ))}
+              {paymentMethod === 'wallet' && walletBalance.isError && (
+                <ErrorBox error={walletBalance.error} retry={() => void walletBalance.refetch()} />
+              )}
+              {paymentMethod === 'wallet' && walletShort && (
+                <p className="notice">Cash in more credits or switch to GCash to continue.</p>
+              )}
+              <button className="secondary-button full-width" onClick={() => setCashIn(true)}>
+                Cash in to wallet
+              </button>
+              <p className="help-text">Prototype only. Both payment methods are simulated.</p>
+            </fieldset>
+          )}
+          {checkout && !user && (
+            <p className="help-text">Sign in to pay with GCash or CPUGrab Wallet.</p>
+          )}
           {checkout ? (
             user ? (
               <button
                 className="primary-button"
-                disabled={!selected || invalid || busy}
+                disabled={!selected || !canPay || invalid || busy}
                 onClick={() => setConfirm(true)}
               >
                 <ShoppingBag size={17} />
-                Reserve order
+                Review and pay
               </button>
             ) : (
               <Link href="/login" className="primary-button">
@@ -255,16 +308,17 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
           )}
         </aside>
       </div>
-      {confirm && (
+      {cashIn && <WalletCashIn onClose={() => setCashIn(false)} />}
+      {confirm && paymentMethod && (
         <Modal
-          title="Confirm Reservation"
+          title="Confirm Payment"
           onClose={() => {
             if (!busy) setConfirm(false);
           }}
         >
           <div className="confirm-intro">
             <CalendarCheck size={24} />
-            <p>Please review your order details before confirming.</p>
+            <p>Review your reservation before confirming the simulated payment.</p>
           </div>
           <div className="detail-row">
             <span>Stall</span>
@@ -277,9 +331,12 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
           <div className="detail-row">
             <span>Pickup Time</span>
             <strong>
-              {selected &&
-                `Today · ${time(selected.start_time)} – ${time(selected.end_time)}`}
+              {selected && `Today · ${time(selected.start_time)} – ${time(selected.end_time)}`}
             </strong>
+          </div>
+          <div className="detail-row total-row">
+            <span>Payment method</span>
+            <strong>{paymentMethodLabel[paymentMethod]}</strong>
           </div>
           <div className="detail-row total-row">
             <span>Total Payment</span>
@@ -287,10 +344,10 @@ export function Checkout({ checkout = false }: { checkout?: boolean }) {
           </div>
           <button
             className="primary-button full-width"
-            disabled={busy}
+            disabled={busy || !canPay}
             onClick={() => void reserve()}
           >
-            <Busy busy={busy}>Confirm Order</Busy>
+            <Busy busy={busy}>Pay {money(totals.total)}</Busy>
           </button>
           <button
             className="secondary-button full-width"

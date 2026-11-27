@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   ArrowUpRight,
   Search,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useCart } from '@/stores/cart';
@@ -28,12 +29,15 @@ import { Modal, Empty, Loading } from './ui';
 import { useState } from 'react';
 import type { Role } from '@/types';
 import { fetchCatalog } from '@/services/catalog';
+import { WalletCashIn } from './student/wallet-cash-in';
 export function Shell({ children, role = 'student' }: { children: React.ReactNode; role?: Role }) {
   const path = usePathname();
-  const dashboard = path === '/student/home' || path === '/seller/dashboard' || path === '/admin';
+  const studentHome = role === 'student' && path === '/student/home';
+  const dashboard = studentHome || path === '/seller/dashboard' || path === '/admin';
   const { user, name, loading, role: accountRole } = useSession();
   const count = useCart((s) => s.lines.reduce((sum, x) => sum + x.quantity, 0));
   const [notifications, setNotifications] = useState(false);
+  const [wallet, setWallet] = useState(false);
   const { data: catalog } = useQuery({ queryKey: ['catalog'], queryFn: fetchCatalog });
   const { data: notices = [] } = useQuery({
     queryKey: ['notifications', user?.id],
@@ -140,12 +144,23 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
               </Link>
             )}
             <Link
-              className="avatar"
+              className={role === 'student' ? 'avatar student-header-profile' : 'avatar'}
               href={user ? '/student/profile' : '/login'}
               aria-label={user ? 'Your profile' : 'Sign in'}
             >
               {user ? name.charAt(0) : <UserRound size={20} />}
             </Link>
+            {studentHome && (
+              <button
+                type="button"
+                className="icon-button wallet-button"
+                aria-label="Cash in to CPUGrab Wallet"
+                aria-haspopup="dialog"
+                onClick={() => setWallet(true)}
+              >
+                <Wallet size={21} aria-hidden="true" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -232,6 +247,7 @@ export function Shell({ children, role = 'student' }: { children: React.ReactNod
           </Link>
         ))}
       </nav>
+      {studentHome && wallet && <WalletCashIn onClose={() => setWallet(false)} />}
       {notifications && (
         <Modal title="Notifications" onClose={() => setNotifications(false)}>
           {notices.length ? (

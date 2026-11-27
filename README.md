@@ -18,7 +18,7 @@ Open [http://localhost:3000](http://localhost:3000). Without Supabase configurat
 ## What’s included
 
 - Student location browsing with horizontal stall menu previews, global debounced search, category/location/price filters, food details and favorites.
-- Single-stall Zustand cart scoped to the current account, transparent centavo pricing, pickup slots, cash-at-pickup checkout, orders and private QR codes.
+- Single-stall Zustand cart scoped to the current account, transparent centavo pricing, pickup slots, simulated GCash and CPUGrab Wallet checkout, orders and private QR codes.
 - Email/password accounts, verification, password recovery, seller applications, cookie session refresh and role navigation.
 - Seller dashboard, optimistic image availability toggles, grayscale unavailable images, explicit menu edit mode, Storage image uploads, archive, schedules, ready/cancel actions, camera scanning and manual secure-token fallback.
 - Administrator approval, stall suspension, location management, account suspension and fee configuration.

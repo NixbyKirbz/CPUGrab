@@ -7,7 +7,14 @@ import { ArrowLeft, Check, QrCode, RefreshCw } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { getSupabase } from '@/lib/supabase/client';
 import { fetchCatalog, rpc } from '@/services/catalog';
-import { money, time, day, statusLabel } from '@/lib/format';
+import {
+  money,
+  time,
+  day,
+  statusLabel,
+  paymentMethodLabel,
+  paymentStatusLabel,
+} from '@/lib/format';
 import { useSession } from '@/components/providers';
 import { PageTitle, Loading, ErrorBox, Empty, Busy } from '@/components/ui';
 import { CancelDialog } from '@/components/orders';
@@ -51,7 +58,8 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
   const stall = catalog?.stalls.find((s) => s.id === o.stall_id);
   const active = ['reserved', 'ready'].includes(o.status);
   const confirmed = params.get('confirmed') === '1';
-  const showConfirmation = !pickup && confirmed && active;
+  const canPickUp = active && o.payment_status === 'paid';
+  const showConfirmation = !pickup && confirmed && canPickUp;
   const generate = async () => {
     setBusy(true);
     setTokenError(null);
@@ -87,7 +95,11 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
       </div>
       <div className="detail-row">
         <span>Payment</span>
-        <strong>{o.payment_status === 'paid' ? 'Cash received' : 'Cash upon pickup'}</strong>
+        <strong>
+          {o.payment_status === 'unpaid'
+            ? paymentStatusLabel.unpaid
+            : `${paymentMethodLabel[o.payment_method]} · ${paymentStatusLabel[o.payment_status]}`}
+        </strong>
       </div>
     </>
   );
@@ -97,8 +109,10 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
       <section className="panel qr-panel">
         <h2>Good food. One quick scan.</h2>
         <p>Show this QR code at the stall to claim your order. Keep it private.</p>
-        {!active ? (
-          <span className={`status ${o.status}`}>{statusLabel(o.status)}</span>
+        {!canPickUp ? (
+          <span className={`status ${o.status}`}>
+            {active ? paymentStatusLabel.unpaid : statusLabel(o.status)}
+          </span>
         ) : (
           <>
             {token ? (
@@ -195,8 +209,14 @@ export function OrderDetail({ id, pickup = false }: { id: string; pickup?: boole
           </p>
         )}
         {o.cancellation_reason && <p className="notice">Cancelled: {o.cancellation_reason}</p>}
+        {active && o.payment_status === 'unpaid' && (
+          <p className="notice">
+            This reservation predates online checkout. Cancel it or contact the stall, then place a
+            new reservation with GCash or CPUGrab Wallet.
+          </p>
+        )}
       </section>
-      {active && !showConfirmation && (
+      {canPickUp && !showConfirmation && (
         <Link className="primary-button full-width" href={`/student/pickup/${id}`}>
           <QrCode size={18} />
           View pickup QR code

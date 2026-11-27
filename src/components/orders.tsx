@@ -2,13 +2,21 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { CalendarDays, Check, QrCode, Banknote } from 'lucide-react';
+import { CalendarDays, Check, QrCode, CreditCard } from 'lucide-react';
 import { fetchOrders } from '@/services/orders';
 import { fetchCatalog, rpc } from '@/services/catalog';
-import { money, time, day, statusLabel } from '@/lib/format';
+import {
+  money,
+  time,
+  day,
+  statusLabel,
+  paymentMethodLabel,
+  paymentStatusLabel,
+} from '@/lib/format';
 import { useSession } from './providers';
 import { PageTitle, Loading, ErrorBox, Empty, Modal, Busy } from './ui';
 import type { Order, OrderStatus } from '@/types';
+import { walletBalanceKey } from './student/wallet-cash-in';
 export function CancelDialog({ order, onClose }: { order: Order; onClose: () => void }) {
   const [reason, setReason] = useState('');
   const [other, setOther] = useState('');
@@ -32,6 +40,7 @@ export function CancelDialog({ order, onClose }: { order: Order; onClose: () => 
               p_order: order.id,
               p_reason: reason === 'Other' ? other : reason,
             });
+            void query.invalidateQueries({ queryKey: walletBalanceKey });
             await query.invalidateQueries({ queryKey: ['orders'] });
             onClose();
           } catch (e) {
@@ -42,6 +51,11 @@ export function CancelDialog({ order, onClose }: { order: Order; onClose: () => 
         }}
       >
         <p className="help-text">Please tell us why you’re cancelling #{order.order_number}.</p>
+        {order.payment_status === 'paid' && order.payment_method !== 'cash' && (
+          <p className="help-text">
+            The simulated payment will be refunded to {paymentMethodLabel[order.payment_method]}.
+          </p>
+        )}
         <label>
           Reason
           <select value={reason} onChange={(e) => setReason(e.target.value)} required>
@@ -197,8 +211,10 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
                 </ul>
                 <div className="detail-row">
                   <span>
-                    <Banknote size={14} style={{ display: 'inline', marginRight: 5 }} />
-                    {o.payment_status === 'paid' ? 'Cash received' : 'Cash at pickup'}
+                    <CreditCard size={14} style={{ display: 'inline', marginRight: 5 }} />
+                    {o.payment_status === 'unpaid'
+                      ? paymentStatusLabel.unpaid
+                      : `${paymentMethodLabel[o.payment_method]} · ${paymentStatusLabel[o.payment_status]}`}
                   </span>
                   <strong>{money(o.total_centavos)}</strong>
                 </div>
@@ -222,7 +238,7 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
                 {seller ? (
                   ['reserved', 'ready'].includes(o.status) && (
                     <>
-                      {o.status === 'reserved' && (
+                      {o.status === 'reserved' && o.payment_status === 'paid' && (
                         <button
                           className="ready-button"
                           disabled={busy === o.id}
@@ -252,7 +268,7 @@ export function Orders({ seller = false, stall }: { seller?: boolean; stall?: st
                     <Link className="secondary-button" href={`/student/order/${o.id}`}>
                       View details
                     </Link>
-                    {['reserved', 'ready'].includes(o.status) && (
+                    {['reserved', 'ready'].includes(o.status) && o.payment_status === 'paid' && (
                       <Link className="primary-button" href={`/student/pickup/${o.id}`}>
                         <QrCode size={15} />
                         Pickup code

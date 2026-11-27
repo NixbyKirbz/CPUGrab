@@ -50,6 +50,7 @@ export type Catalog = {
   settings: Pricing;
 };
 export type OrderStatus = 'reserved' | 'ready' | 'completed' | 'cancelled';
+export type PaymentMethod = 'gcash' | 'wallet';
 export type OrderItem = {
   item_name_snapshot: string;
   quantity: number;
@@ -63,7 +64,8 @@ export type Order = {
   student_id: string;
   pickup_slot_id: string;
   status: OrderStatus;
-  payment_status: 'unpaid' | 'paid';
+  payment_method: PaymentMethod | 'cash';
+  payment_status: 'unpaid' | 'paid' | 'refunded';
   subtotal_centavos: number;
   reservation_fee_centavos: number;
   markup_centavos: number;

@@ -30,7 +30,37 @@ test('browse, search, add a meal and review transparent checkout', async ({ page
   await expect(page.getByText('₱55', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Choose pickup time' }).click();
   await expect(page.getByRole('link', { name: 'Sign in to reserve' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reserve order', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Sign in to pay with GCash or CPUGrab Wallet.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review and pay', exact: true })).toHaveCount(0);
+});
+test('dashboard wallet opens cash-in and guest profile follows the responsive navigation', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/student/home', { waitUntil: 'domcontentloaded' });
+  const wallet = page.getByRole('button', { name: 'Cash in to CPUGrab Wallet' });
+  await expect(wallet).toBeVisible();
+  const profile = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', {
+    name: 'Profile',
+  });
+  const headerProfile = page
+    .getByRole('banner')
+    .getByRole('link', { name: 'Sign in', exact: true });
+  if (isMobile) {
+    await expect(profile).toBeVisible();
+    await expect(headerProfile).toBeHidden();
+  } else {
+    await expect(headerProfile).toBeVisible();
+  }
+  await wallet.click();
+  const dialog = page.getByRole('dialog', { name: 'Cash In to Wallet' });
+  await expect(dialog.getByRole('link', { name: 'Sign in to cash in' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(dialog).toBeHidden();
+  if (isMobile) {
+    await profile.click();
+    await expect(page.getByRole('heading', { name: 'Your campus account' })).toBeVisible();
+  }
 });
 test('location previews and mobile overflow stay usable', async ({ page }) => {
   await page.goto('/student/location/00000000-0000-4000-8000-000000000001', {

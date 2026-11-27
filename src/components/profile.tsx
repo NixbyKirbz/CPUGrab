@@ -224,8 +224,8 @@ export function Profile() {
               Browse a location, choose a stall, add your meal, and select an available pickup time.
             </p>
             <p>
-              Pay in cash at the stall and show your private pickup QR. Never share your code
-              publicly.
+              Pay at checkout with simulated GCash or CPUGrab Wallet, then show your private pickup
+              QR at the stall. Keep the code private.
             </p>
             <p>
               Need to cancel? You can cancel reserved orders more than 15 minutes before pickup. For

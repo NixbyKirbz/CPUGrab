@@ -1,3 +1,17 @@
+import type { Order } from '@/types';
+
+export const paymentMethodLabel = {
+  gcash: 'GCash',
+  wallet: 'CPUGrab Wallet',
+  cash: 'Cash',
+} satisfies Record<Order['payment_method'], string>;
+
+export const paymentStatusLabel = {
+  unpaid: 'Payment required',
+  paid: 'Paid',
+  refunded: 'Refunded',
+} satisfies Record<Order['payment_status'], string>;
+
 export const money = (centavos: number) =>
   new Intl.NumberFormat('en-PH', {
     style: 'currency',
